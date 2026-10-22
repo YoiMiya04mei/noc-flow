@@ -1,0 +1,160 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jdp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jdp_route_intel}
+      POSTGRES_USER: ${POSTGRES_USER:-jdp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jdp_secure_password_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jdp_user} -d ${POSTGRES_DB:-jdp_route_intel}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: jdp-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-jdp_flow_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_dev_pass}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "${CLICKHOUSE_PORT:-8123}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jdp-backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ROUTING_EXECUTION_ENABLED: ${ROUTING_EXECUTION_ENABLED:-false}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-jdp_user}:${POSTGRES_PASSWORD:-jdp_secure_password_dev}@postgres:5432/${POSTGRES_DB:-jdp_route_intel}
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-jdp_flow_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_dev_pass}
+      SECRET_KEY: ${SECRET_KEY:-default-insecure-dev-secret-key-change-in-prod-32c}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    container_name: jdp-collector
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-jdp_flow_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_dev_pass}
+      COLLECTOR_NETFLOW_PORT: 2055
+      COLLECTOR_SFLOW_PORT: 6343
+      COLLECTOR_IPFIX_PORT: 4739
+      COLLECTOR_BATCH_SIZE: 1000
+    ports:
+      - "2055:2055/udp"
+      - "6343:6343/udp"
+      - "4739:4739/udp"
+      - "8081:8081"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jdp-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  bgp-speaker-1:
+    image: osrg/gobgp:latest
+    container_name: jdp-bgp-speaker-1
+    profiles: ["lab"]
+    restart: unless-stopped
+    entrypoint: ["gobgpd"]
+    command: ["-f", "/etc/gobgp/gobgp.toml", "--api-hosts=0.0.0.0:50051", "-p", "-l", "info"]
+    volumes:
+      - ./lab/speaker1/gobgp.toml:/etc/gobgp/gobgp.toml:ro
+    networks:
+      bgp_lab_net:
+        ipv4_address: 10.99.0.10
+    ports:
+      - "127.0.0.1:50051:50051"
+
+  bgp-speaker-2:
+    image: osrg/gobgp:latest
+    container_name: jdp-bgp-speaker-2
+    profiles: ["lab"]
+    restart: unless-stopped
+    entrypoint: ["gobgpd"]
+    command: ["-f", "/etc/gobgp/gobgp.toml", "--api-hosts=0.0.0.0:50051", "-p", "-l", "info"]
+    volumes:
+      - ./lab/speaker2/gobgp.toml:/etc/gobgp/gobgp.toml:ro
+    networks:
+      bgp_lab_net:
+        ipv4_address: 10.99.0.20
+    ports:
+      - "127.0.0.1:50052:50051"
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+
+networks:
+  default:
+  bgp_lab_net:
+    driver: bridge
+    internal: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.99.0.0/24

@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  bgp-speaker-1:
+    image: osrg/gobgp:latest
+    container_name: jdp-bgp-speaker-1
+    restart: unless-stopped
+    entrypoint: ["gobgpd"]
+    command: ["-f", "/etc/gobgp/gobgp.toml", "--api-hosts=0.0.0.0:50051", "-p", "-l", "info"]
+    volumes:
+      - ./speaker1/gobgp.toml:/etc/gobgp/gobgp.toml:ro
+    networks:
+      bgp_lab_net:
+        ipv4_address: 10.99.0.10
+    ports:
+      - "127.0.0.1:50051:50051"
+
+  bgp-speaker-2:
+    image: osrg/gobgp:latest
+    container_name: jdp-bgp-speaker-2
+    restart: unless-stopped
+    entrypoint: ["gobgpd"]
+    command: ["-f", "/etc/gobgp/gobgp.toml", "--api-hosts=0.0.0.0:50051", "-p", "-l", "info"]
+    volumes:
+      - ./speaker2/gobgp.toml:/etc/gobgp/gobgp.toml:ro
+    networks:
+      bgp_lab_net:
+        ipv4_address: 10.99.0.20
+    ports:
+      - "127.0.0.1:50052:50051"
+
+networks:
+  bgp_lab_net:
+    driver: bridge
+    internal: true # CRITICAL: No outbound default gateway, isolated from public internet & intranet
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.99.0.0/24

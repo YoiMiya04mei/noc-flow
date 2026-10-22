@@ -1,0 +1,11 @@
+[global.config]
+  as = 65001
+  router-id = "10.99.0.10"
+  port = 179
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "10.99.0.20"
+    peer-as = 65002
+  [neighbors.transport.config]
+    local-address = "10.99.0.10"

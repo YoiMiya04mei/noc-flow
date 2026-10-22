@@ -76,7 +76,7 @@
     - 64-bit HC counter rate math (inbound/outbound bps, pps, utilization %).
     - Reboot detection (`sysUpTime` drop) & baseline reset tanpa spike palsu.
     - 64-bit counter wrapping ($2^{64}$ modulo) & supresi lonjakan anomali ($>10\times$ link speed).
-    - Secret encryption at rest (Fernet AES) & pencegahan kebocoran kredensial di API/log/audit.
+    - Secret encryption at rest: AES-128-CBC dengan HMAC-SHA256 via Fernet (RFC 0x80) & pencegahan kebocoran kredensial di API/log/audit (lihat ADR 0008).
     - RBAC enforcement (network_engineer & super_admin only).
     - Unregistered / unauthorized IP scanning prevention (hanya perangkat inventaris aktif).
     - Status isolasi: kegagalan polling/timeout tidak mengubah `oper_status` antarmuka router.
@@ -89,6 +89,7 @@
     - Initiation message (Type 4) TLVs parsing (sysName, sysDescr).
     - Peer Up notification (Type 3) and Peer Down notification (Type 2) with reason codes.
     - Route Monitoring (Type 0) with encapsulated BGP UPDATE NLRI prefix announcements, withdrawals, AS_PATH, NEXT_HOP, and Communities parsing.
+    - Message Type 1 (Stats Report) & Type 6 (Route Mirroring) ditegaskan di luar cakupan / unsupported via `BMPParseError` (lihat ADR 0009).
     - Zero-crash robustness: malformed, truncated, or out-of-sync binary BMP frames handled gracefully.
     - Ingestion pipeline into PostgreSQL: `BGPPeer`, `BGPRoute`, and `RouteEvent` stream synchronization.
     - BMP Adapter status telemetry endpoint (`/api/v1/bgp/bmp/status`) & simulation injector (`/api/v1/bgp/bmp/simulate`).

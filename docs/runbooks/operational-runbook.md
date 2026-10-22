@@ -63,10 +63,10 @@
    ```bash
    docker compose up -d
    ```
-7. **Access Platform:**
+7. **Access Platform & Administrator Provisioning:**
    - Web UI: `http://localhost:3000`
    - API Docs: `http://localhost:8000/docs`
-   - Initial Credentials (Demo/Dev): `admin` / `Admin@JDP2026!noc`
+   - Administrator Provisioning: Run `python scripts/bootstrap_admin.py --username admin` to securely generate or set the super_admin password (or configure `INITIAL_ADMIN_PASSWORD` in `.env`). Do NOT use default or shared credentials.
 
 ---
 

@@ -141,17 +141,27 @@ npm run dev
 
 ---
 
-## 4. Kredensial Pengguna Awal (RBAC)
+## 4. Kredensial Pengguna Awal & Prosedur Bootstrap (RBAC)
 
-Setelah menjalankan `seed.py`, tersedia akun dengan 5 tingkatan peran:
+Platform menggunakan otentikasi JWT dengan 5 tingkatan peran (*Role-Based Access Control* / RBAC):
 
-| Username | Password | Peran (RBAC) | Hak Akses |
-|---|---|---|---|
-| `admin` | `Admin@JDP2026!noc` | `super_admin` | Konfigurasi penuh, user management, audit, policy |
-| `engineer1` | `Engineer@JDP2026!` | `network_engineer` | Analisis flow/BGP, create device, simulate routing |
-| `lead_approver` | `Approver@JDP2026!` | `approver` | Review diff, approve / reject change requests |
-| `operator1` | `Operator@JDP2026!` | `noc_operator` | Monitoring dashboard, acknowledge alert, export |
-| `auditor1` | `Auditor@JDP2026!` | `auditor` | Read-only audit log, laporan kepatuhan |
+| Peran (RBAC) | Hak Akses Utama |
+|---|---|
+| `super_admin` | Konfigurasi penuh, user management, audit trail, allowlist, policy manajemen |
+| `network_engineer` | Analisis flow/BGP, registrasi device & probe, simulasi routing, draft mitigasi |
+| `approver` | Review diff routing/mitigasi, approval / rejection change request (dual control) |
+| `noc_operator` | Monitoring dashboard operasional, acknowledge incident, export report |
+| `auditor` | Hak baca (*read-only*) untuk log audit dan laporan kepatuhan |
+
+> [!IMPORTANT]
+> **Kebijakan Keamanan Kredensial UAT & Produksi:**
+> - Pada environment non-development (`APP_ENV=production` atau `APP_ENV=uat`), pembuatan akun demo default **dinonaktifkan secara otomatis**.
+> - Administrator awal di-provisioning menggunakan script CLI interaktif atau variabel lingkungan:
+>   ```bash
+>   python scripts/bootstrap_admin.py --username admin --email admin@jdp-noc.net --role super_admin
+>   ```
+> - CLI di atas mendukung pembuatan interaktif (tanpa echo terminal), pengacakan password berkekuatan tinggi (`--generate`), serta verifikasi kekuatan password (minimal 12 karakter dengan huruf besar, kecil, angka, dan simbol).
+> - Seluruh aktivitas provisioning dan rotasi password dicatat ke dalam `audit_events` tanpa pernah mencatat nilai password (zero secret leakage).
 
 ---
 
@@ -160,9 +170,9 @@ Setelah menjalankan `seed.py`, tersedia akun dengan 5 tingkatan peran:
 ### Pengujian Backend (FastAPI / Pytest)
 ```powershell
 cd backend
-python -m pytest -v
+python -m pytest tests/ -v
 ```
-**Hasil: 95 dari 95 Test Lulus (100% Pass)**
+**Hasil: 99 dari 99 Test Lulus (100% Pass)**
 - `test_login_success_form`: Validasi login form-data OAuth2.
 - `test_login_success_json`: Validasi login JSON payload.
 - `test_login_invalid_password`: Penolakan kredensial tidak valid.
@@ -295,7 +305,7 @@ npm run build
 | **SNMP Polling Engine** | **Berfungsi Penuh** | Nyata (SNMPv3 authPriv AES/SHA + IF-MIB 64-bit) |
 | **Scheduled Background Poller** | **Berfungsi Penuh** | Nyata (Asyncio worker dalam lifespan, semaphore limit, in-flight duplicate lock) |
 | **Worker Telemetry & Trigger** | **Berfungsi Penuh** | Nyata (`/api/v1/devices/snmp/worker-status` & `/worker-trigger`) |
-| **Secret Encryption at Rest** | **Berfungsi Penuh** | Nyata (AES-128 via Fernet, zero secret leakage) |
+| **Secret Encryption at Rest** | **Berfungsi Penuh** | Nyata (AES-128-CBC dengan HMAC-SHA256 via Fernet RFC 0x80, zero secret leakage; lihat ADR 0008) |
 | **Interface Rate & Wrap Math** | **Berfungsi Penuh** | Nyata (Delta time, reboot reset, 64-bit wrap, no fake spikes) |
 | **Interface Metrics History** | **Berfungsi Penuh** | Nyata (Tersimpan di PostgreSQL `interface_metrics_history`) |
 | **Flow Collector (Go)** | **Berfungsi Penuh** | Nyata (UDP listeners NetFlow v5/v9, IPFIX, sFlow v5) |
@@ -304,7 +314,7 @@ npm run build
 | **ClickHouse Ingestion** | **Berfungsi Penuh** | Nyata (Schema MergeTree partitioned by month + views) |
 | **Data Explorer** | **Berfungsi Penuh** | Nyata jika ClickHouse terhubung; fallback demo berlabel jujur |
 | **BGP Visibility & Peers** | **Berfungsi Penuh** | Nyata dengan adapter BMP RFC 7854 dan pelabelan sumber LIVE/LAB/SIMULATED |
-| **BMP Adapter (RFC 7854)** | **Berfungsi Penuh** | Nyata (Asyncio TCP Listener port 11019, Initiation, Peer Up/Down, Route Monitoring) |
+| **BMP Adapter (RFC 7854)** | **Berfungsi Penuh** | Nyata (Asyncio TCP Listener port 11019, Message Type 0 Route Monitoring, Type 2 Peer Down, Type 3 Peer Up, Type 4 Initiation, Type 5 Termination; Type 1 Stats & Type 6 Mirroring di luar cakupan; lihat ADR 0009) |
 | **Active Path Probing** | **Berfungsi Penuh** | Nyata (TCP connect RTT / ICMP, min/avg/max/loss/jitter, background worker 15s) |
 | **Egress Binding Engine** | **Berfungsi Penuh** | Nyata (Platform capability detection: SO_BINDTODEVICE Linux vs SOURCE_IP_BIND Windows) |
 | **Recommendation Engine** | **Berfungsi Penuh** | Nyata (Korelasi BGP RIB, Active Probes, SNMP link capacity, ClickHouse flows, scoring policy) |

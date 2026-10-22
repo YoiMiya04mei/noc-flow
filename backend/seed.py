@@ -33,51 +33,76 @@ async def seed_database():
         # 1. Seed Users (All 5 Roles for RBAC validation)
         existing_admin = await session.execute(select(User).where(User.username == "admin"))
         if not existing_admin.scalars().first():
-            logger.info("Seeding system users across RBAC roles...")
-            users = [
-                User(
-                    username="admin",
-                    email="admin@jdp-noc.net",
-                    full_name="Super Administrator",
-                    password_hash=get_password_hash("Admin@JDP2026!noc"),
-                    role=UserRole.SUPER_ADMIN.value,
-                    status=UserStatus.ACTIVE.value,
-                ),
-                User(
-                    username="engineer1",
-                    email="engineer@jdp-noc.net",
-                    full_name="Senior Network Engineer",
-                    password_hash=get_password_hash("Engineer@JDP2026!"),
-                    role=UserRole.NETWORK_ENGINEER.value,
-                    status=UserStatus.ACTIVE.value,
-                ),
-                User(
-                    username="lead_approver",
-                    email="approver@jdp-noc.net",
-                    full_name="NOC Lead Approver",
-                    password_hash=get_password_hash("Approver@JDP2026!"),
-                    role=UserRole.APPROVER.value,
-                    status=UserStatus.ACTIVE.value,
-                ),
-                User(
-                    username="operator1",
-                    email="operator@jdp-noc.net",
-                    full_name="NOC Shift Operator",
-                    password_hash=get_password_hash("Operator@JDP2026!"),
-                    role=UserRole.NOC_OPERATOR.value,
-                    status=UserStatus.ACTIVE.value,
-                ),
-                User(
-                    username="auditor1",
-                    email="auditor@jdp-noc.net",
-                    full_name="Compliance Auditor",
-                    password_hash=get_password_hash("Auditor@JDP2026!"),
-                    role=UserRole.AUDITOR.value,
-                    status=UserStatus.ACTIVE.value,
-                ),
-            ]
-            session.add_all(users)
-            await session.commit()
+            app_env = os.getenv("APP_ENV", "development").lower()
+            if app_env in ("production", "uat"):
+                logger.info("Environment is '%s': Automated demo user credential seeding is DISABLED. Use 'python scripts/bootstrap_admin.py' to initialize the super administrator.", app_env)
+                init_admin_pwd = os.getenv("INITIAL_ADMIN_PASSWORD")
+                if init_admin_pwd:
+                    admin_user = User(
+                        username="admin",
+                        email="admin@jdp-noc.net",
+                        full_name="Super Administrator",
+                        password_hash=get_password_hash(init_admin_pwd),
+                        role=UserRole.SUPER_ADMIN.value,
+                        status=UserStatus.ACTIVE.value,
+                    )
+                    session.add(admin_user)
+                    await session.commit()
+                    logger.info("Super administrator provisioned from INITIAL_ADMIN_PASSWORD environment variable.")
+            else:
+                logger.info("Seeding system users across RBAC roles (Development mode)...")
+                import secrets
+
+                def get_or_gen(env_key: str) -> str:
+                    val = os.getenv(env_key)
+                    if val:
+                        return val
+                    return secrets.token_urlsafe(16) + "!A1"
+
+                users = [
+                    User(
+                        username="admin",
+                        email="admin@jdp-noc.net",
+                        full_name="Super Administrator",
+                        password_hash=get_password_hash(get_or_gen("INITIAL_ADMIN_PASSWORD")),
+                        role=UserRole.SUPER_ADMIN.value,
+                        status=UserStatus.ACTIVE.value,
+                    ),
+                    User(
+                        username="engineer1",
+                        email="engineer@jdp-noc.net",
+                        full_name="Senior Network Engineer",
+                        password_hash=get_password_hash(get_or_gen("INITIAL_ENGINEER_PASSWORD")),
+                        role=UserRole.NETWORK_ENGINEER.value,
+                        status=UserStatus.ACTIVE.value,
+                    ),
+                    User(
+                        username="lead_approver",
+                        email="approver@jdp-noc.net",
+                        full_name="NOC Lead Approver",
+                        password_hash=get_password_hash(get_or_gen("INITIAL_APPROVER_PASSWORD")),
+                        role=UserRole.APPROVER.value,
+                        status=UserStatus.ACTIVE.value,
+                    ),
+                    User(
+                        username="operator1",
+                        email="operator@jdp-noc.net",
+                        full_name="NOC Shift Operator",
+                        password_hash=get_password_hash(get_or_gen("INITIAL_OPERATOR_PASSWORD")),
+                        role=UserRole.NOC_OPERATOR.value,
+                        status=UserStatus.ACTIVE.value,
+                    ),
+                    User(
+                        username="auditor1",
+                        email="auditor@jdp-noc.net",
+                        full_name="Compliance Auditor",
+                        password_hash=get_password_hash(get_or_gen("INITIAL_AUDITOR_PASSWORD")),
+                        role=UserRole.AUDITOR.value,
+                        status=UserStatus.ACTIVE.value,
+                    ),
+                ]
+                session.add_all(users)
+                await session.commit()
 
         # 2. Seed Sites & Providers
         site1 = (await session.execute(select(Site).where(Site.code == "POP-CGK-1"))).scalars().first()

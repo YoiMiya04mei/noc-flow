@@ -58,6 +58,11 @@ collector/collector
 postgres_data/
 clickhouse_data/
 clickhouse_logs/
+backups/**/*.sql.gz
+backups/**/*.tar.gz
+backups/**/*.tsv.gz
+backups/**/*.sha256
+backups/**/*.manifest.json
 
 # IDE / Editor
 .idea/

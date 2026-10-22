@@ -1,0 +1,65 @@
+{
+  "timestamp_utc": "2026-10-22T10:30:10.315714+00:00",
+  "system_specs": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "cpu_cores_logical": 20,
+    "cpu_cores_physical": 14,
+    "ram_total_gb": 11.71,
+    "ram_available_gb": 0.39,
+    "disk_free_gb": 43.13
+  },
+  "flow_parser_throughput": {
+    "netflow5_parsing_rate_ops": 353180,
+    "netflow5_records_per_second": 9077155,
+    "netflow5_latency_ns_op": 3305,
+    "netflow9_parsing_rate_ops": 2779622,
+    "netflow9_latency_ns_op": 427.7
+  },
+  "clickhouse_ingestion": {
+    "total_records": 25000,
+    "total_time_s": 0.6119720999995479,
+    "throughput_rps": 40851.53555205943,
+    "batch_latency_avg_ms": 107.70214000076521,
+    "batch_latency_p95_ms": 131.70316000760067
+  },
+  "analytics_query_latencies": {
+    "data_explorer_filtered": {
+      "p50_ms": 48.21375000028638,
+      "p95_ms": 52.820514997438295,
+      "p99_ms": 59.23224700134597,
+      "avg_ms": 49.45112399960635,
+      "min_ms": 45.515500009059906,
+      "max_ms": 59.6534999931464
+    },
+    "top_talkers_src_ip": {
+      "p50_ms": 53.09024999587564,
+      "p95_ms": 59.318290004011935,
+      "p99_ms": 60.94172100085416,
+      "avg_ms": 53.365212000207976,
+      "min_ms": 46.60190000140574,
+      "max_ms": 61.60180000006221
+    },
+    "traffic_matrix_as": {
+      "p50_ms": 50.366449999273755,
+      "p95_ms": 56.07038500747876,
+      "p99_ms": 73.35491100253415,
+      "avg_ms": 50.76760600146372,
+      "min_ms": 5.847599997650832,
+      "max_ms": 89.30249999684747
+    },
+    "hourly_trend_aggregation": {
+      "p50_ms": 49.86130000179401,
+      "p95_ms": 53.86409000857384,
+      "p99_ms": 58.34170599438947,
+      "avg_ms": 50.12127200141549,
+      "min_ms": 45.6527000060305,
+      "max_ms": 62.22769999294542
+    }
+  },
+  "database_storage": {
+    "total_flow_records": 30000,
+    "compressed_bytes": 660010,
+    "compressed_mb": 0.63
+  }
+}

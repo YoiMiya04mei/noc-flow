@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     ]
 
     # Application Database (PostgreSQL / SQLite fallback for lightweight tests)
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "jdp_route_intel"
+    POSTGRES_USER: str = "jdp_user"
+    POSTGRES_PASSWORD: str = "jdp_secure_password_dev"
     DATABASE_URL: str = "postgresql+asyncpg://jdp_user:jdp_secure_password_dev@localhost:5432/jdp_route_intel"
 
     # ClickHouse Analytics Database

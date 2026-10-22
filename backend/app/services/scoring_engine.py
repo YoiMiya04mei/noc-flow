@@ -251,7 +251,7 @@ class RouteScoringEngine:
                 confidence -= 15.0
 
         final_confidence = round(max(0.0, min(100.0, confidence)), 1)
-        is_insufficient = final_confidence < 50.0 or ("ACTIVE_PROBE" not in available_sources and "BGP" not in available_sources)
+        is_insufficient = final_confidence <= 50.0 or ("ACTIVE_PROBE" not in available_sources and "SNMP" not in available_sources)
 
         explanation = (
             f"Quality rated at {final_confidence}% confidence. "

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -79,8 +80,9 @@ async def seed_database():
             await session.commit()
 
         # 2. Seed Sites & Providers
-        existing_site = await session.execute(select(Site).where(Site.code == "POP-CGK-1"))
-        if not existing_site.scalars().first():
+        site1 = (await session.execute(select(Site).where(Site.code == "POP-CGK-1"))).scalars().first()
+        site2 = (await session.execute(select(Site).where(Site.code == "POP-SUB-1"))).scalars().first()
+        if not site1:
             logger.info("Seeding Sites, Providers, and Device Inventory...")
             site1 = Site(name="Jakarta Datacenter IDC 3D", code="POP-CGK-1", location="Jakarta, Indonesia")
             site2 = Site(name="Surabaya POP Intiland", code="POP-SUB-1", location="Surabaya, Indonesia")
@@ -89,6 +91,10 @@ async def seed_database():
             await session.refresh(site1)
             await session.refresh(site2)
 
+        prov1 = (await session.execute(select(Provider).where(Provider.provider_asn == 7713))).scalars().first()
+        prov2 = (await session.execute(select(Provider).where(Provider.provider_asn == 4761))).scalars().first()
+        prov3 = (await session.execute(select(Provider).where(Provider.provider_asn == 3356))).scalars().first()
+        if not prov1:
             prov1 = Provider(name="Telkom DWS (AS7713)", provider_asn=7713, cost_weight=1.0, capacity_bps=40_000_000_000)
             prov2 = Provider(name="Indosat Ooredoo (AS4761)", provider_asn=4761, cost_weight=1.2, capacity_bps=20_000_000_000)
             prov3 = Provider(name="Lumen / Level3 (AS3356)", provider_asn=3356, cost_weight=2.0, capacity_bps=10_000_000_000)
@@ -97,7 +103,10 @@ async def seed_database():
             await session.refresh(prov1)
             await session.refresh(prov2)
 
-            # Devices
+        dev1 = (await session.execute(select(Device).where(Device.hostname == "cr01.cgk.jdp.net"))).scalars().first()
+        dev2 = (await session.execute(select(Device).where(Device.hostname == "cr02.cgk.jdp.net"))).scalars().first()
+        dev3 = (await session.execute(select(Device).where(Device.hostname == "er01.sub.jdp.net"))).scalars().first()
+        if not dev1:
             dev1 = Device(hostname="cr01.cgk.jdp.net", mgmt_ip="10.250.0.1", vendor="Juniper", model="MX480", site_id=site1.id)
             dev2 = Device(hostname="cr02.cgk.jdp.net", mgmt_ip="10.250.0.2", vendor="Cisco", model="ASR9006", site_id=site1.id)
             dev3 = Device(hostname="er01.sub.jdp.net", mgmt_ip="10.250.1.1", vendor="Huawei", model="NetEngine 40E", site_id=site2.id)
@@ -105,6 +114,10 @@ async def seed_database():
             await session.commit()
             await session.refresh(dev1)
 
+        # 3. Interfaces & Dependent Telemetry
+        existing_if = (await session.execute(select(Interface).where(Interface.device_id == dev1.id))).scalars().first()
+        if not existing_if:
+            logger.info("Seeding Interfaces, Collectors, Peers, and Routes...")
             # Interfaces
             if1 = Interface(device_id=dev1.id, if_index=1, if_name="xe-0/0/0", alias="Transit Telkom DWS 40G", speed_bps=40_000_000_000, in_bps=22_400_000_000, out_bps=8_100_000_000, utilization_pct=56.0)
             if2 = Interface(device_id=dev1.id, if_index=2, if_name="xe-0/0/1", alias="Transit Indosat 20G", speed_bps=20_000_000_000, in_bps=14_800_000_000, out_bps=5_200_000_000, utilization_pct=74.0)

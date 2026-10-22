@@ -116,3 +116,18 @@ func TestParseNetFlow9CorruptedDoesNotPanic(t *testing.T) {
 		t.Errorf("Expected error on truncated NetFlow v9 packet, got nil")
 	}
 }
+
+func BenchmarkParseNetFlow9(b *testing.B) {
+	packet := buildSampleNetFlow9Packet()
+	store := NewTemplateStore()
+	// Pre-seed template
+	_, _ = ParseWithStore(packet, "192.168.1.1", "POP-CGK-1", store)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := ParseWithStore(packet, "192.168.1.1", "POP-CGK-1", store)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

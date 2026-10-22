@@ -89,3 +89,15 @@ func TestParseInvalidVersion(t *testing.T) {
 		t.Errorf("Expected error for invalid version, got nil")
 	}
 }
+
+func BenchmarkParseNetFlow5_30Records(b *testing.B) {
+	packet := buildSampleNetFlow5Packet(30)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := Parse(packet, "192.168.1.1", "POP-CGK-1")
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

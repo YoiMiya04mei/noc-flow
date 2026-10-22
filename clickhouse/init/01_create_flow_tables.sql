@@ -32,7 +32,7 @@ ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 PRIMARY KEY (site_id, exporter_ip, protocol)
 ORDER BY (site_id, exporter_ip, protocol, timestamp, src_ip, dst_ip)
-TTL timestamp + INTERVAL 30 DAY;
+TTL toDateTime(timestamp) + INTERVAL 30 DAY;
 
 -- 2. Hourly Materialized Aggregate Table for Fast Trend Queries
 CREATE TABLE IF NOT EXISTS flow_hourly_agg

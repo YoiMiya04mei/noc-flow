@@ -1,6 +1,7 @@
 package listener
 
 import (
+	"encoding/binary"
 	"log"
 	"net"
 	"sync/atomic"
@@ -94,10 +95,12 @@ func (l *UDPListener) worker() {
 		var err error
 
 		switch l.format {
-		case "netflow5":
-			records, err = netflow5.Parse(pkt, "127.0.0.1", l.siteID)
-		case "netflow9":
-			records, err = netflow9.Parse(pkt, "127.0.0.1", l.siteID)
+		case "netflow", "netflow5", "netflow9":
+			if len(pkt) >= 2 && binary.BigEndian.Uint16(pkt[0:2]) == 9 {
+				records, err = netflow9.Parse(pkt, "127.0.0.1", l.siteID)
+			} else {
+				records, err = netflow5.Parse(pkt, "127.0.0.1", l.siteID)
+			}
 		case "ipfix":
 			records, err = ipfix.Parse(pkt, "127.0.0.1", l.siteID)
 		case "sflow5":

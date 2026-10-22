@@ -1,0 +1,49 @@
+services:
+  uat-postgres:
+    image: postgres:16-alpine
+    container_name: jdp-uat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jdp_uat_route_intel
+      POSTGRES_USER: jdp_uat_user
+      POSTGRES_PASSWORD: jdp_uat_password_temp
+    ports:
+      - "5435:5432"
+    volumes:
+      - jdp_uat_postgres_vol:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jdp_uat_user -d jdp_uat_route_intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  uat-clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: jdp-uat-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: jdp_uat_flow_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ch_uat_password_temp
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8125:8123"
+      - "9002:9000"
+    volumes:
+      - jdp_uat_clickhouse_vol:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jdp_uat_postgres_vol:
+    name: jdp-uat-isolated_jdp_uat_postgres_vol
+  jdp_uat_clickhouse_vol:
+    name: jdp-uat-isolated_jdp_uat_clickhouse_vol

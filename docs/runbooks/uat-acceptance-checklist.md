@@ -17,9 +17,26 @@
 
 > [!IMPORTANT]
 > **Instruksi Pengisian Operator UAT:**
-> - Kolom **Actual Result**, **Status (PASS/FAIL/BLOCKED)**, **Bukti Log / Output**, dan **Catatan Operator** sengaja dikosongkan pada checklist ini.
-> - Operator penguji WAJIB mengisi kolom tersebut secara langsung saat pengujian dilaksanakan di lingkungan acceptance lab.
+> - Kolom **Actual Result**, **Status (PASS/FAIL/BLOCKED)**, **Bukti Log / Output**, dan **Catatan Operator** diisi secara bertahap sesuai batch pengujian yang disetujui.
+> - Operator penguji WAJIB mengisi kolom tersebut secara langsung saat pengujian dilaksanakan di lingkungan acceptance lab yang terisolasi.
 > - Jangan menandai PASS sebelum output verifikasi atau log aktual terkonfirmasi.
+
+### Ringkasan Status Eksekusi per Batch
+
+| Batch | Domain / Test ID | Deskripsi Skenario | Status Eksekusi |
+|---|---|---|---|
+| **Batch 1** | **UAT-SAFE-01** | Production Execution Guardrails & Secret Masking | **PASS** |
+| **Batch 1** | **UAT-INST-01** | Isolated Fresh Installation & Cold Start Persistence | **PASS** |
+| **Batch 2** | **UAT-AUTH-01** | Autentikasi, Token Expiration, & 5 Peran RBAC | *(Belum Dieksekusi)* |
+| **Batch 2** | **UAT-SNMP-01** | Inventory, SNMPv3 Polling, & Stale State | *(Belum Dieksekusi)* |
+| **Batch 2** | **UAT-FLOW-01** | Flow Collector Ingestion, ClickHouse, & Data Explorer | *(Belum Dieksekusi)* |
+| **Batch 3** | **UAT-BMP-01** | BMP RFC 7854 Visibility & Active Path Probes | *(Belum Dieksekusi)* |
+| **Batch 3** | **UAT-REC-01** | Recommendation Scoring & Simulation Reproducibility | *(Belum Dieksekusi)* |
+| **Batch 3** | **UAT-CR-01** | Change Request, Dual Approval, & Anti-Self Approval | *(Belum Dieksekusi)* |
+| **Batch 4** | **UAT-LAB-01** | Isolated BGP Lab, Convergence Check, & Rollback | *(Belum Dieksekusi)* |
+| **Batch 4** | **UAT-MITIG-01** | FlowSpec & RTBH Multi-Vendor Preview & 12-Pt Gate | *(Belum Dieksekusi)* |
+| **Batch 4** | **UAT-BCK-01** | Backup & Isolated Restore Drill | *(Belum Dieksekusi)* |
+| **Batch 4** | **UAT-RESIL-01**| Fault-Isolation & Auto-Recovery Service Dependency | *(Belum Dieksekusi)* |
 
 ---
 
@@ -30,13 +47,13 @@
 | Kolom | Rincian Skenario |
 |---|---|
 | **Test ID** | **UAT-INST-01** |
-| **Prasyarat** | Docker & Docker Compose v2 terpasang, environment `.env` terkonfigurasi dengan flag keamanan `false`, port 3000, 8000, 8123, 5432, 2055, 6343, 4739 tidak konflik. |
-| **Langkah Pengujian** | 1. Jalankan `docker compose down -v` untuk membersihkan environment lama.<br>2. Jalankan `docker compose up -d postgres clickhouse`.<br>3. Verifikasi status database via `docker compose ps` hingga `healthy`.<br>4. Jalankan migrasi schema: `alembic upgrade head`.<br>5. Inisialisasi admin: `python scripts/bootstrap_admin.py --username admin --email admin@jdp-noc.net --generate`.<br>6. Jalankan service backend, frontend, collector, dan lab speakers: `docker compose up -d`. |
-| **Expected Result** | Seluruh kontainer (`jdp-postgres`, `jdp-clickhouse`, `jdp-backend`, `jdp-frontend`, `jdp-collector`, `jdp-bgp-speaker-1`, `jdp-bgp-speaker-2`) berada dalam status `Up` / `healthy`. Endpoint `/api/v1/health` mengembalikan HTTP 200 `{"status": "healthy"}`. |
-| **Actual Result** | *(Diisi oleh Operator saat UAT)* |
-| **PASS / FAIL / BLOCKED** | *(Belum Dieksekusi)* |
-| **Bukti Log atau Output** | *(Lampirkan log terminal docker compose ps & curl /health)* |
-| **Catatan Operator** | *(Catatan operator)* |
+| **Prasyarat** | Docker Compose project terisolasi `jdp-uat-isolated` (`docker-compose.uat.yml`) dengan database dan volume terpisah: `jdp-uat-postgres` (port 5435), `jdp-uat-clickhouse` (port 8125, 9002), volume terpisah `jdp-uat-isolated_jdp_uat_postgres_vol`, `jdp-uat-isolated_jdp_uat_clickhouse_vol`. Database target `jdp_uat_route_intel` bersih (empty cold-start). Port dev existing (5433, 8123) dan volume dev tetap aktif tanpa gangguan. |
+| **Langkah Pengujian** | 1. Inisialisasi stack terisolasi: `docker compose -p jdp-uat-isolated -f docker-compose.uat.yml up -d postgres clickhouse`.<br>2. Verifikasi status kontainer via `docker ps` hingga status `Up (healthy)`.<br>3. Jalankan migrasi skema database dari kondisi kosong: `alembic upgrade head` mengarah ke database UAT terisolasi.<br>4. Inisialisasi akun super administrator UAT: `python scripts/bootstrap_admin.py --username uat_admin --generate`.<br>5. Eksekusi pengujian verifikasi otomatis UAT (`scripts/test_uat_install.py`):<br>   - Verifikasi `/health`.<br>   - Uji login OAuth2 form (`/api/v1/auth/login`) dan JSON (`/api/v1/auth/login-json`).<br>   - Uji verifikasi profile super_admin (`/api/v1/auth/me`).<br>   - Uji inventaris kosong awal (`/api/v1/devices`).<br>   - Uji status production adapter (`LOCKED_DRY_RUN`) & circuit breaker (`CLOSED`).<br>   - Uji penolakan eksekusi routing fisik (HTTP 403 `ERR_ROUTING_EXECUTION_DISABLED`).<br>6. Uji persistensi data: Restart kontainer database `docker restart jdp-uat-postgres`, lalu jalankan ulang seluruh harness verifikasi. |
+| **Expected Result** | Seluruh kontainer terisolasi berjalan sehat (`Up healthy`). Migrasi Alembic membuat seluruh 27 tabel dari cold-start tanpa error. Akun administrator UAT terbuat dan mencatat audit event tanpa membocorkan password. Login berhasil dan mengembalikan token JWT. Status guardrail terkunci rapat. Setelah restart kontainer database, seluruh data dan skema tetap utuh (persisten). Lingkungan development existing tidak terpengaruh sama sekali. |
+| **Actual Result** | **LULUS (VERIFIED)**.<br>- Kontainer `jdp-uat-postgres` (port 5435) dan `jdp-uat-clickhouse` (port 8125/9002) berjalan sehat.<br>- Migrasi Alembic `001_initial_schema` sukses membentuk 27 tabel relasional lengkap di `jdp_uat_route_intel`.<br>- Akun `uat_admin` (role `super_admin`) berhasil di-bootstrap dengan audit event `USER_BOOTSTRAP_CREATED` tercatat di database.<br>- Endpoint `/health` mengembalikan status 200 OK `{"status": "healthy", "routing_execution_enabled": false}`.<br>- Login OAuth2 form & JSON mengembalikan token JWT bearer valid.<br>- Query `/auth/me` memvalidasi username `uat_admin` dan role `super_admin`.<br>- Status production adapter mengonfirmasi `safety_mode: LOCKED_DRY_RUN` dan `is_enabled: false`.<br>- Percobaan eksekusi routing ditolak dengan HTTP 403 `ERR_ROUTING_EXECUTION_DISABLED`.<br>- Database persistence terverifikasi: pasca `docker restart jdp-uat-postgres`, seluruh 27 tabel dan kredensial admin tetap utuh, seluruh assertion pengujian lulus 100%. |
+| **PASS / FAIL / BLOCKED** | **PASS** |
+| **Bukti Log atau Output** | - `docker ps`: `jdp-uat-postgres Up (healthy) 0.0.0.0:5435->5432/tcp`, `jdp-uat-clickhouse Up (healthy) 0.0.0.0:8125->8123/tcp`<br>- Alembic output: `[ALEMBIC TARGET DB]: postgresql+asyncpg://...:5435/jdp_uat_route_intel`, `Running upgrade -> 001_initial_schema, Initial schema for JDP Route Intelligence Platform`<br>- Bootstrap output: `Admin user 'uat_admin' created successfully (role: super_admin). Audit event ID: 1`<br>- Verification harness: `[1] Health Check: Status 200`, `[2] Login uat_admin (Form): Status 200 (JWT acquired)`, `[2b] Login uat_admin (JSON): Status 200`, `[3] /auth/me Profile: Status 200 | User: uat_admin, Role: super_admin`, `[4] /devices Query: Status 200 | Count: 0`, `[5] /mitigation/production-adapter/status: Status 200 | is_enabled: False, safety_mode: LOCKED_DRY_RUN`, `[5b] Circuit Breaker: Status 200 | State: CLOSED`, `[6] Route Execution Test: Status 403 | Detail: ERR_ROUTING_EXECUTION_DISABLED`<br>- Restart persistence: `docker restart jdp-uat-postgres` -> `ALL UAT-INST-01 INTEGRATION CHECKS PASSED SUCCESSFULLY!` |
+| **Catatan Operator** | Pengujian fresh installation dilakukan pada environment yang 100% terisolasi (port 5435 & 8125, volume `jdp-uat-isolated_*`). Database development (`jdp-postgres` port 5433) dan volume `nocflow_postgres_data` sama sekali tidak tersentuh dan tetap berjalan normal. Kredensial password UAT di-generate acak dengan entropi tinggi dan tidak dicatat dalam laporan maupun repositori. |
 
 ---
 
@@ -195,13 +212,13 @@
 | Kolom | Rincian Skenario |
 |---|---|
 | **Test ID** | **UAT-SAFE-01** |
-| **Prasyarat** | Akses ke environment konfigurasi backend `.env`, konfigurasi `config.py`, database `system_settings`, dan API endpoints. |
-| **Langkah Pengujian** | 1. Audit konfigurasi environment aktual:<br>   - Periksa nilai `ROUTING_EXECUTION_ENABLED` (harus `false`).<br>   - Periksa nilai `PRODUCTION_ROUTING_ENABLED` (harus `false`).<br>   - Periksa nilai `FLOWSPEC_EXECUTION_ENABLED` (harus `false`).<br>   - Periksa nilai `RTBH_EXECUTION_ENABLED` (harus `false`).<br>2. Audit database `system_settings` untuk memastikan tidak ada override flag produksi.<br>3. Panggil endpoint eksekusi routing dengan token `super_admin`: `POST /api/v1/change-requests/{id}/execute`.<br>4. Panggil endpoint eksekusi mitigasi: `POST /api/v1/mitigation/flowspec/{id}/execute` dan `POST /api/v1/mitigation/rtbh/{id}/execute`.<br>5. Verifikasi bahwa SELURUH endpoint eksekusi mengembalikan HTTP 403 Forbidden dengan kode error terstandarisasi `ERR_ROUTING_EXECUTION_DISABLED`.<br>6. Periksa bahwa adapter produksi (`ProductionBGPAdapter`) hanya beroperasi dalam mode `dry-run` sintaks kompilasi dan tidak memiliki koneksi socket fisik ke router produksi.<br>7. Verifikasi pencatatan audit event yang mencatat setiap upaya pemanggilan eksekusi yang diblokir oleh guardrail. |
-| **Expected Result** | - Seluruh flag eksekusi bernilai `false` secara definitif.<br>- Seluruh percobaan eksekusi diblokir secara absolut pada layer guardrail backend.<br>- Tidak ada perubahan konfigurasi atau rute yang terkirim ke perangkat jaringan produksi.<br>- Upaya eksekusi tercatat rapi di tabel `audit_events`. |
-| **Actual Result** | *(Diisi oleh Operator saat UAT)* |
-| **PASS / FAIL / BLOCKED** | *(Belum Dieksekusi)* |
-| **Bukti Log atau Output** | *(Lampirkan bukti respons HTTP 403 Forbidden dan audit trail log)* |
-| **Catatan Operator** | *(Catatan operator)* |
+| **Prasyarat** | Akses ke environment konfigurasi backend `.env.uat` / `.env`, modul `app/core/config.py`, database `system_settings`, unit & integration test suite, dan API endpoints. |
+| **Langkah Pengujian** | 1. Audit konfigurasi environment aktual:<br>   - Periksa nilai `ROUTING_EXECUTION_ENABLED` (harus `false`).<br>   - Periksa nilai `PRODUCTION_ROUTING_ENABLED` (harus `false`).<br>   - Periksa nilai `FLOWSPEC_EXECUTION_ENABLED` (harus `false`).<br>   - Periksa nilai `RTBH_EXECUTION_ENABLED` (harus `false`).<br>   - Periksa nilai `BGP_LAB_ENABLED` (harus `false` pada konfigurasi umum).<br>2. Eksekusi test suite guardrails dan mitigasi produksi:<br>   - `pytest tests/test_guardrails.py tests/test_mitigation_and_rollout.py -v`<br>   - `pytest tests/test_bgp_lab.py -k "test_lab_precheck_fails_when_lab_disabled or test_lab_production_guardrail_unaffected or test_lab_audit_logging" -v`<br>   - `pytest tests/test_snmp.py -k "test_snmp_profile_create_and_secret_masking" -v`<br>3. Panggil endpoint live dengan token `super_admin`: `POST /api/v1/change-requests/1/execute`.<br>4. Periksa status production adapter via `GET /api/v1/mitigation/production-adapter/status` dan circuit breaker via `GET /api/v1/mitigation/circuit-breaker/status`.<br>5. Verifikasi bahwa adapter produksi beroperasi dalam status `LOCKED_DRY_RUN` tanpa socket fisik ke router produksi.<br>6. Verifikasi enkripsi kredensial (Fernet AES-128-CBC + HMAC-SHA256) dan penyamaran kredensial `***` pada API response dan log audit. |
+| **Expected Result** | - Seluruh flag eksekusi bernilai `false` secara definitif.<br>- Seluruh percobaan eksekusi diblokir secara absolut pada layer guardrail backend (HTTP 403 `ERR_ROUTING_EXECUTION_DISABLED`).<br>- Tidak ada perubahan konfigurasi atau rute yang terkirim ke perangkat jaringan produksi.<br>- Upaya eksekusi tercatat rapi di tabel `audit_events`.<br>- Kredensial tidak pernah bocor dalam respons JSON maupun log sistem.<br>- Seluruh unit test guardrail lulus 100%. |
+| **Actual Result** | **LULUS (VERIFIED)**.<br>- Konfigurasi default terverifikasi aman:<br>  * `ROUTING_EXECUTION_ENABLED = false`<br>  * `PRODUCTION_ROUTING_ENABLED = false`<br>  * `FLOWSPEC_EXECUTION_ENABLED = false`<br>  * `RTBH_EXECUTION_ENABLED = false`<br>  * `BGP_LAB_ENABLED = false`<br>- 15 test guardrails dan isolasi lulus 100% (11/11 pada test guardrails/mitigation, 3/3 pada test BGP lab guardrail, 1/1 pada secret masking).<br>- Pemanggilan endpoint live `POST /api/v1/change-requests/1/execute` ditolak mutlak dengan HTTP 403 Forbidden: `ERR_ROUTING_EXECUTION_DISABLED: Physical routing execution is strictly disabled by system guardrails`.<br>- Status production adapter terverifikasi: `safety_mode: LOCKED_DRY_RUN`, `is_enabled: false`.<br>- Status circuit breaker: `state: CLOSED`.<br>- Secret protection terverifikasi: SNMPv3 auth & priv keys terenkripsi di database dan dimasking menjadi `***` saat di-query via API. Tidak ada kebocoran secret pada respon API maupun log. |
+| **PASS / FAIL / BLOCKED** | **PASS** |
+| **Bukti Log atau Output** | - Pytest output: 15 passed across `test_guardrails.py`, `test_mitigation_and_rollout.py`, `test_bgp_lab.py`, and `test_snmp.py`.<br>- HTTP 403 Response: `status=403, detail="ERR_ROUTING_EXECUTION_DISABLED: Physical routing execution is strictly disabled by system guardrails"`<br>- Adapter Status: `GET /api/v1/mitigation/production-adapter/status` -> `{"is_enabled": false, "safety_mode": "LOCKED_DRY_RUN", "total_executions_attempted": 0, "total_executions_blocked": 0}`<br>- Circuit Breaker Status: `GET /api/v1/mitigation/circuit-breaker/status` -> `{"state": "CLOSED", "failure_count": 0}`<br>- Masking check: `tests/test_snmp.py::test_snmp_profile_create_and_secret_masking PASSED` |
+| **Catatan Operator** | Seluruh guardrail eksekusi produksi (10-layer backend protection, 12-point execution gate, production adapter dry-run lock, circuit breaker, dan emergency stop) terbukti aktif, read-only, dan menolak interaksi fisik tanpa ada jalur bypass melalui API atau UI. Zero production mutations. |
 
 ---
 

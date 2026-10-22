@@ -1,5 +1,7 @@
 # Environment and Secrets
 .env
+.env.uat
+.env.*
 .env.local
 .env.*.local
 *.pem

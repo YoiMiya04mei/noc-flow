@@ -104,7 +104,7 @@ class RTBHRulePreview(BaseModel):
 
 class RTBHRuleCreate(BaseModel):
     threat_id: Optional[int] = None
-    target_prefix: str = Field(..., description="Target host or subnet to blackhole (must be /32 or allowed /28-/32)")
+    target_prefix: str = Field(..., description="Target host or subnet to blackhole (allowed range /24 to /32 for IPv4, host /32 recommended)")
     blackhole_community: str = Field("65535:666", description="RFC 7999 BGP BLACKHOLE community")
     ttl_minutes: int = Field(60, ge=10, le=1440, description="Mitigation TTL in minutes")
     justification: str = Field(..., min_length=10, description="Operational justification for dropping traffic")
@@ -116,8 +116,12 @@ class RTBHRuleCreate(BaseModel):
             raise ValueError("Default route cannot be targeted for RTBH.")
         try:
             net = ipaddress.ip_network(v, strict=False)
-            if net.prefixlen < 24:
-                raise ValueError(f"Prefix length /{net.prefixlen} is too broad for RTBH. Minimum allowed is /24, recommended /32.")
+            if net.version == 4:
+                if net.prefixlen < 24 or net.prefixlen > 32:
+                    raise ValueError(f"Prefix length /{net.prefixlen} is too broad for RTBH. Minimum allowed is /24, recommended /32.")
+            elif net.version == 6:
+                if net.prefixlen < 64 or net.prefixlen > 128:
+                    raise ValueError(f"IPv6 prefix length /{net.prefixlen} is too broad for RTBH. Minimum allowed is /64, recommended /128.")
         except Exception as e:
             raise ValueError(f"Invalid IP prefix format: {str(e)}")
         return v

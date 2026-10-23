@@ -98,18 +98,25 @@ class ProductionExecutionGate:
         else:
             try:
                 ip_net = ipaddress.ip_network(prefix, strict=False)
-                allow_stmt = select(PrefixAllowlist).where(
-                    and_(
-                        PrefixAllowlist.prefix == prefix,
-                        PrefixAllowlist.is_active == True,
-                    )
-                )
-                allow_entry = (await db.execute(allow_stmt)).scalars().first()
-                if allow_entry or prefix in settings.BGP_LAB_ALLOWED_PREFIXES:
-                    prefix_ok = True
-                    prefix_detail = f"Prefix {prefix} verified in active PrefixAllowlist."
+                if operation_type == "RTBH" and ip_net.version == 4 and (ip_net.prefixlen < 24 or ip_net.prefixlen > 32):
+                    prefix_detail = f"REJECTED: Prefix length /{ip_net.prefixlen} is outside allowed RTBH bounds (/24 to /32)."
+                elif operation_type == "RTBH" and ip_net.version == 6 and (ip_net.prefixlen < 64 or ip_net.prefixlen > 128):
+                    prefix_detail = f"REJECTED: IPv6 prefix length /{ip_net.prefixlen} is outside allowed RTBH bounds (/64 to /128)."
                 else:
-                    prefix_detail = f"Prefix {prefix} NOT active in PrefixAllowlist."
+                    allow_stmt = select(PrefixAllowlist).where(PrefixAllowlist.is_active == True)
+                    allow_entries = (await db.execute(allow_stmt)).scalars().all()
+                    allowed_nets = [ipaddress.ip_network(a.prefix, strict=False) for a in allow_entries]
+                    for lab_p in settings.BGP_LAB_ALLOWED_PREFIXES:
+                        try:
+                            allowed_nets.append(ipaddress.ip_network(lab_p, strict=False))
+                        except Exception:
+                            pass
+
+                    if any(ip_net.version == an.version and ip_net.subnet_of(an) for an in allowed_nets):
+                        prefix_ok = True
+                        prefix_detail = f"Prefix {prefix} verified in active PrefixAllowlist."
+                    else:
+                        prefix_detail = f"Prefix {prefix} NOT active in PrefixAllowlist."
             except Exception as e:
                 prefix_detail = f"Invalid prefix format: {str(e)}"
         record("3. Prefix & Policy Allowlist", prefix_ok, prefix_detail)

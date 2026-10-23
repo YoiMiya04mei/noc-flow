@@ -4,7 +4,7 @@ UAT-MITIG-01 Acceptance Verification Script for JDP Route Intelligence Platform.
 Executes comprehensive testing of Phase 7 Mitigation and Safety Gate subsystem:
 1. Threat Candidate creation, field validation, and default route rejection.
 2. Multi-vendor FlowSpec rule preview (Junos filter, Cisco IOS-XR, GoBGP API JSON).
-3. RTBH rule preview (/32 prefix length policy, RFC 7999 community 65535:666, broad subnet rejection).
+3. RTBH rule preview (/24-/32 prefix length policy, RFC 7999 community 65535:666, broad subnet & allowlist rejection).
 4. Dual approval and anti-self-approval enforcement on mitigation rules.
 5. 12-point backend Production Execution Gate (permanent deny-by-default when flags are false).
 6. Circuit Breaker state machine (CLOSED -> 3 failures -> OPEN -> blocked -> manual reset -> CLOSED).
@@ -36,6 +36,7 @@ AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=F
 from app.models.user import User, UserRole
 from app.models.mitigation import ThreatCandidate, MitigationRule, CircuitBreakerEvent
 from app.models.recommendation import ChangeRequest
+from app.models.policy import PrefixAllowlist
 from app.schemas.mitigation import (
     ThreatCandidateCreate,
     FlowSpecRuleCreate,
@@ -151,22 +152,40 @@ async def run_mitigation_uat():
         # ---------------------------------------------------------------------
         # TEST 3: RTBH Rule Preview & Prefix Length Guardrails
         # ---------------------------------------------------------------------
-        log_step("STEP-3", "RTBH Rule Preview, /32 Policy, & RFC 7999 Community Validation")
+        log_step("STEP-3", "RTBH Rule Preview, /24-/32 Policy, & RFC 7999 Community Validation")
+        # Fetch active allowlist prefixes from DB
+        stmt_allow = select(PrefixAllowlist.prefix).where(PrefixAllowlist.is_active == True)
+        res_allow = await db.execute(stmt_allow)
+        active_prefixes = list(res_allow.scalars().all())
+
         # 3a. Valid /32 host RTBH
-        rtbh_valid = RTBHRuleCreate(
+        rtbh_valid_32 = RTBHRuleCreate(
             target_prefix="103.145.2.14/32",
             blackhole_community=settings.DEFAULT_RTBH_COMMUNITY,
             ttl_minutes=30,
-            justification="Active high-rate UDP reflection amplification target against edge router",
+            justification="Active high-rate UDP reflection amplification target against edge router host",
         )
-        rtbh_p_valid: RTBHRulePreview = MitigationService.generate_rtbh_preview(rtbh_valid)
+        rtbh_p_valid_32: RTBHRulePreview = MitigationService.generate_rtbh_preview(rtbh_valid_32, active_prefixes)
         print(f"  3a. Valid /32 RTBH Preview:", flush=True)
-        print(f"      - Validation Status: {rtbh_p_valid.validation_status}", flush=True)
-        print(f"      - Community: {rtbh_p_valid.blackhole_community}", flush=True)
-        print(f"      - Next-Hop: {rtbh_p_valid.next_hop}", flush=True)
-        print(f"      - BGP Update Payload: {json.dumps(rtbh_p_valid.formatted_bgp_update)}", flush=True)
+        print(f"      - Validation Status: {rtbh_p_valid_32.validation_status}", flush=True)
+        print(f"      - Community: {rtbh_p_valid_32.blackhole_community}", flush=True)
+        print(f"      - Next-Hop: {rtbh_p_valid_32.next_hop}", flush=True)
+        print(f"      - BGP Update Payload: {json.dumps(rtbh_p_valid_32.formatted_bgp_update)}", flush=True)
 
-        # 3b. Overly broad /16 subnet RTBH rejection
+        # 3b. Valid /24 customer delegated subnet RTBH
+        rtbh_valid_24 = RTBHRuleCreate(
+            target_prefix="103.145.2.0/24",
+            blackhole_community=settings.DEFAULT_RTBH_COMMUNITY,
+            ttl_minutes=30,
+            justification="Mitigation of massive volumetric subnet flood against core block",
+        )
+        rtbh_p_valid_24: RTBHRulePreview = MitigationService.generate_rtbh_preview(rtbh_valid_24, active_prefixes)
+        print(f"  3b. Valid /24 RTBH Preview:", flush=True)
+        print(f"      - Validation Status: {rtbh_p_valid_24.validation_status}", flush=True)
+        print(f"      - Prefix Length: /{rtbh_p_valid_24.prefix_length}", flush=True)
+        print(f"      - Is Host Route: {rtbh_p_valid_24.is_host_route}", flush=True)
+
+        # 3c. Overly broad /16 subnet RTBH rejection
         rtbh_broad_blocked = False
         try:
             rtbh_broad = RTBHRuleCreate(
@@ -175,13 +194,13 @@ async def run_mitigation_uat():
                 ttl_minutes=30,
                 justification="Attempting broad subnet blackhole",
             )
-            rtbh_p_broad = MitigationService.generate_rtbh_preview(rtbh_broad)
+            rtbh_p_broad = MitigationService.generate_rtbh_preview(rtbh_broad, active_prefixes)
             rtbh_broad_blocked = (rtbh_p_broad.validation_status == "INVALID")
         except Exception as e:
             rtbh_broad_blocked = True
-            print(f"  3b. Broad Subnet /16 RTBH Rejection: BLOCKED ({str(e)})", flush=True)
+            print(f"  3c. Broad Subnet /16 RTBH Rejection: BLOCKED ({str(e)})", flush=True)
 
-        # 3c. Default route 0.0.0.0/0 RTBH rejection
+        # 3d. Default route 0.0.0.0/0 RTBH rejection
         rtbh_def_blocked = False
         try:
             rtbh_def = RTBHRuleCreate(
@@ -190,19 +209,71 @@ async def run_mitigation_uat():
                 ttl_minutes=30,
                 justification="Attempting default route blackhole",
             )
-            rtbh_p_def = MitigationService.generate_rtbh_preview(rtbh_def)
+            rtbh_p_def = MitigationService.generate_rtbh_preview(rtbh_def, active_prefixes)
             rtbh_def_blocked = (rtbh_p_def.validation_status == "INVALID")
         except Exception as e:
             rtbh_def_blocked = True
-            print(f"  3c. Default Route RTBH Rejection: BLOCKED ({str(e)})", flush=True)
+            print(f"  3d. Default Route 0.0.0.0/0 RTBH Rejection: BLOCKED ({str(e)})", flush=True)
+
+        # 3e. Default route ::/0 RTBH rejection
+        rtbh_def6_blocked = False
+        try:
+            rtbh_def6 = RTBHRuleCreate(
+                target_prefix="::/0",
+                blackhole_community=settings.DEFAULT_RTBH_COMMUNITY,
+                ttl_minutes=30,
+                justification="Attempting IPv6 default route blackhole",
+            )
+            rtbh_p_def6 = MitigationService.generate_rtbh_preview(rtbh_def6, active_prefixes)
+            rtbh_def6_blocked = (rtbh_p_def6.validation_status == "INVALID")
+        except Exception as e:
+            rtbh_def6_blocked = True
+            print(f"  3e. Default Route ::/0 RTBH Rejection: BLOCKED ({str(e)})", flush=True)
+
+        # 3f. Prefix outside active PrefixAllowlist rejection
+        rtbh_outside_blocked = False
+        try:
+            rtbh_outside = RTBHRuleCreate(
+                target_prefix="198.51.100.99/32",
+                blackhole_community=settings.DEFAULT_RTBH_COMMUNITY,
+                ttl_minutes=30,
+                justification="Attempting outside allowlist blackhole",
+            )
+            rtbh_p_outside = MitigationService.generate_rtbh_preview(rtbh_outside, active_prefixes)
+            rtbh_outside_blocked = (rtbh_p_outside.validation_status == "INVALID")
+            print(f"  3f. Outside Allowlist RTBH Rejection: BLOCKED ({rtbh_p_outside.validation_messages})", flush=True)
+        except Exception as e:
+            rtbh_outside_blocked = True
+            print(f"  3f. Outside Allowlist RTBH Rejection: BLOCKED ({str(e)})", flush=True)
+
+        # 3g. Reject creating RTBH rule for outside prefix at service layer
+        outside_create_blocked = False
+        try:
+            await MitigationService.create_rtbh_rule(
+                db=db,
+                payload=RTBHRuleCreate(
+                    target_prefix="198.51.100.99/32",
+                    blackhole_community=settings.DEFAULT_RTBH_COMMUNITY,
+                    ttl_minutes=30,
+                    justification="Attempting outside allowlist creation",
+                ),
+                creator=engineer_user or admin_user,
+            )
+        except Exception as e:
+            outside_create_blocked = True
+            print(f"  3g. Outside Allowlist Creation: BLOCKED ({str(e)})", flush=True)
 
         pass_3 = (
-            rtbh_p_valid.validation_status == "VALID"
-            and rtbh_p_valid.blackhole_community == "65535:666"
+            rtbh_p_valid_32.validation_status == "VALID"
+            and rtbh_p_valid_24.validation_status == "VALID"
+            and rtbh_p_valid_32.blackhole_community == "65535:666"
             and rtbh_broad_blocked
             and rtbh_def_blocked
+            and rtbh_def6_blocked
+            and rtbh_outside_blocked
+            and outside_create_blocked
         )
-        results.append(("UAT-MITIG-01-S3", "RTBH Preview, /32 Policy & RFC 7999 Community Guardrails", pass_3))
+        results.append(("UAT-MITIG-01-S3", "RTBH Preview, /24-/32 Policy & RFC 7999 Community Guardrails", pass_3))
 
         # ---------------------------------------------------------------------
         # TEST 4: Dual Approval & Anti-Self-Approval Enforcement

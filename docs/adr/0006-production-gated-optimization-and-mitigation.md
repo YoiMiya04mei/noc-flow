@@ -46,8 +46,8 @@ Mesin rekomendasi dan workflow mitigasi dilarang memanggil shell, CLI internal, 
   - Validasi: Tolak `0.0.0.0/0`, tolak rule terlalu luas tanpa filter port/protokol, validasi batas kompleksitas rule, dan wajib menyertakan TTL/waktu kedaluwarsa (*auto-expiry*).
 - **RTBH Mitigation (RFC 7999)**:
   - Tindakan mitigasi berisiko tinggi yang mendrop seluruh trafik menuju host/subnet tujuan.
-  - Validasi ketat panjang prefix: Hanya `/32` (IPv4 host) atau subnet pelanggan terdaftar yang diizinkan (misal `/28`–`/32`).
-  - Tolak default route `0.0.0.0/0` dan `::/0`, bogon, serta martian.
+  - Validasi ketat panjang prefix: Rentang `/24` hingga `/32` untuk IPv4 (host `/32` sangat direkomendasikan untuk meminimalkan dampak kolateral; subnet `/24` hingga `/31` diizinkan jika seluruh blok pelanggan terdaftar di `PrefixAllowlist`).
+  - Tolak mutlak subnet luas ($< /24$, seperti `/16` atau `/8`), default route `0.0.0.0/0` dan `::/0`, bogon, martian, serta seluruh prefix di luar `PrefixAllowlist`.
   - Validasi BGP Blackhole Community (default RFC 7999 `65535:666` atau konfigurasi upstream ISP).
   - Wajib Dual Approval dari dua akun berwenang sebelum rule dapat dijadwalkan.
   - Wajib menyertakan batas durasi/kedaluwarsa otomatis dan rencana pemulihan (*withdrawal plan*).

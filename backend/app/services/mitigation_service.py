@@ -179,9 +179,14 @@ class MitigationService:
         )
 
     @classmethod
-    def generate_rtbh_preview(cls, payload: RTBHRuleCreate) -> RTBHRulePreview:
+    def generate_rtbh_preview(
+        cls,
+        payload: RTBHRuleCreate,
+        allowed_prefixes: Optional[List[str]] = None,
+    ) -> RTBHRulePreview:
         """
-        Generates compiled RTBH blackhole announcement preview and validates prefix length.
+        Generates compiled RTBH blackhole announcement preview and validates prefix length and allowlist.
+        Policy allows IPv4 prefixes in the range /24 to /32. Broad subnets (< /24) and default routes are rejected.
         """
         messages: List[str] = []
         is_valid = True
@@ -189,13 +194,35 @@ class MitigationService:
         net = ipaddress.ip_network(payload.target_prefix, strict=False)
         is_host = net.num_addresses == 1
 
-        if net.prefixlen < 24:
-            is_valid = False
-            messages.append(f"REJECTED: Prefix length /{net.prefixlen} is too broad. RTBH only allowed for /24 to /32.")
-
         if payload.target_prefix in ("0.0.0.0/0", "::/0"):
             is_valid = False
-            messages.append("REJECTED: Default routes cannot be blackholed.")
+            messages.append("REJECTED: Default routes 0.0.0.0/0 and ::/0 cannot be blackholed.")
+
+        if net.version == 4:
+            if net.prefixlen < 24 or net.prefixlen > 32:
+                is_valid = False
+                messages.append(f"REJECTED: Prefix length /{net.prefixlen} is too broad. RTBH only allowed for /24 to /32.")
+        elif net.version == 6:
+            if net.prefixlen < 64 or net.prefixlen > 128:
+                is_valid = False
+                messages.append(f"REJECTED: IPv6 prefix length /{net.prefixlen} is too broad. RTBH only allowed for /64 to /128.")
+
+        # Allowlist validation
+        if allowed_prefixes is not None:
+            allowed_nets = []
+            for p in allowed_prefixes:
+                try:
+                    allowed_nets.append(ipaddress.ip_network(p, strict=False))
+                except Exception:
+                    pass
+            for lab_p in settings.BGP_LAB_ALLOWED_PREFIXES:
+                try:
+                    allowed_nets.append(ipaddress.ip_network(lab_p, strict=False))
+                except Exception:
+                    pass
+            if not any(net.version == an.version and net.subnet_of(an) for an in allowed_nets):
+                is_valid = False
+                messages.append(f"REJECTED: Target prefix '{payload.target_prefix}' is not in the active PrefixAllowlist.")
 
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=payload.ttl_minutes)
@@ -217,7 +244,7 @@ class MitigationService:
             upstream_peers=settings.BGP_LAB_ALLOWED_PEERS,
             formatted_bgp_update=bgp_update,
             validation_status="VALID" if is_valid else "INVALID",
-            validation_messages=messages if messages else ["RTBH candidate complies with RFC 7999 host blackhole policy."],
+            validation_messages=messages if messages else ["RTBH candidate complies with RFC 7999 blackhole policy (/24 to /32)."],
             expires_at=expires_at,
             withdrawal_plan=payload.withdrawal_plan,
         )
@@ -230,6 +257,22 @@ class MitigationService:
         creator: User,
         request: Optional[Any] = None,
     ) -> MitigationRule:
+        # Validate target prefix against PrefixAllowlist
+        target_net = ipaddress.ip_network(payload.target_prefix, strict=False)
+        allow_stmt = select(PrefixAllowlist).where(PrefixAllowlist.is_active == True)
+        allow_entries = (await db.execute(allow_stmt)).scalars().all()
+        allowed_nets = [ipaddress.ip_network(a.prefix, strict=False) for a in allow_entries]
+        for lab_p in settings.BGP_LAB_ALLOWED_PREFIXES:
+            try:
+                allowed_nets.append(ipaddress.ip_network(lab_p, strict=False))
+            except Exception:
+                pass
+
+        if not any(target_net.version == an.version and target_net.subnet_of(an) for an in allowed_nets):
+            raise ValueError(
+                f"GUARDRAIL REJECTION: Target prefix '{payload.target_prefix}' is outside the active PrefixAllowlist."
+            )
+
         preview = cls.generate_flowspec_preview(payload)
         now = datetime.now(timezone.utc)
 
@@ -274,7 +317,38 @@ class MitigationService:
         creator: User,
         request: Optional[Any] = None,
     ) -> MitigationRule:
-        preview = cls.generate_rtbh_preview(payload)
+        # 1. Reject default routes
+        if payload.target_prefix in ("0.0.0.0/0", "::/0"):
+            raise ValueError("Default route 0.0.0.0/0 and ::/0 cannot be targeted for RTBH.")
+
+        # 2. Reject prefix length outside bounds (/24 to /32 for IPv4)
+        net = ipaddress.ip_network(payload.target_prefix, strict=False)
+        if net.version == 4:
+            if net.prefixlen < 24 or net.prefixlen > 32:
+                raise ValueError(f"Prefix length /{net.prefixlen} is too broad for RTBH. Minimum allowed is /24, recommended /32.")
+        elif net.version == 6:
+            if net.prefixlen < 64 or net.prefixlen > 128:
+                raise ValueError(f"IPv6 prefix length /{net.prefixlen} is too broad for RTBH. Minimum allowed is /64, recommended /128.")
+
+        # 3. Guardrail: Must be within active PrefixAllowlist
+        allow_stmt = select(PrefixAllowlist).where(PrefixAllowlist.is_active == True)
+        allow_entries = (await db.execute(allow_stmt)).scalars().all()
+        allowed_nets = [ipaddress.ip_network(a.prefix, strict=False) for a in allow_entries]
+        for lab_p in settings.BGP_LAB_ALLOWED_PREFIXES:
+            try:
+                allowed_nets.append(ipaddress.ip_network(lab_p, strict=False))
+            except Exception:
+                pass
+
+        if not any(net.version == an.version and net.subnet_of(an) for an in allowed_nets):
+            raise ValueError(
+                f"GUARDRAIL REJECTION: Target prefix '{payload.target_prefix}' is outside the active PrefixAllowlist."
+            )
+
+        preview = cls.generate_rtbh_preview(payload, [a.prefix for a in allow_entries])
+        if preview.validation_status != "VALID":
+            raise ValueError(f"GUARDRAIL REJECTION: RTBH preview failed validation: {'; '.join(preview.validation_messages)}")
+
         now = datetime.now(timezone.utc)
 
         rule = MitigationRule(

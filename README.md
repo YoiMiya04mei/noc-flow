@@ -255,7 +255,7 @@ python -m pytest tests/ -v
 - `test_12_point_execution_gate_evaluator`: **Lolos** evaluasi 12 kriteria keamanan deny-by-default sebelum eksekusi rute.
 - `test_threat_candidate_lifecycle`: **Lolos** pembentukan kandidat ancaman DDoS, deteksi anomali, dan transisi status.
 - `test_flowspec_preview_and_rule_lifecycle`: **Lolos** preview multi-vendor Junos/Cisco/GoBGP, penolakan default route, dan anti-self-approval.
-- `test_rtbh_mitigation_dual_approval_and_prefix_guards`: **Lolos** validasi host /32 blackhole RFC 7999 dan mandatory dual-approval 2-tahap.
+- `test_rtbh_mitigation_dual_approval_and_prefix_guards`: **Lolos** validasi prefix /24-/32 blackhole RFC 7999, penolakan subnet luas (< /24), default routes, allowlist check, dan mandatory dual-approval 2-tahap.
 - `test_controlled_rollout_lifecycle_and_batch_limits`: **Lolos** pembatasan batch <= 5 prefix dan transisi canary staging.
 - `test_circuit_breaker_and_emergency_stop`: **Lolos** auto-trip pada 3 kegagalan, emergency stop kill-switch instan, dan manual reset dengan telaah akar masalah.
 

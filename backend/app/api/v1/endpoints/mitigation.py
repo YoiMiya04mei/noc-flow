@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.models.mitigation import ThreatCandidate, MitigationRule, RolloutExecution
 from app.models.recommendation import ChangeRequest
+from app.models.policy import PrefixAllowlist
 from app.schemas.mitigation import (
     ThreatCandidateCreate,
     ThreatCandidateResponse,
@@ -97,9 +98,13 @@ async def create_flowspec_rule(
 @router.post("/rtbh/preview", response_model=RTBHRulePreview)
 async def preview_rtbh_rule(
     payload: RTBHRuleCreate,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return MitigationService.generate_rtbh_preview(payload)
+    stmt = select(PrefixAllowlist.prefix).where(PrefixAllowlist.is_active == True)
+    res = await db.execute(stmt)
+    allowed_prefixes = list(res.scalars().all())
+    return MitigationService.generate_rtbh_preview(payload, allowed_prefixes)
 
 
 @router.post("/rtbh/rules", response_model=MitigationRuleResponse, status_code=status.HTTP_201_CREATED)

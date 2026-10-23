@@ -323,8 +323,16 @@ async def test_rtbh_mitigation_dual_approval_and_prefix_guards(
     approver_token: str,
     admin_token: str,
 ):
-    """Verifies RTBH prefix length bounds (/24-/32), blackhole preview, and strict dual-approval."""
-    # 1. Preview rejection for overly broad prefix (e.g. /16)
+    """
+    Verifies RTBH policy consistency:
+    - /24 accepted when in allowlist
+    - /16 rejected as overly broad (< /24)
+    - /32 accepted when in allowlist
+    - 0.0.0.0/0 and ::/0 rejected as default routes
+    - Prefixes outside PrefixAllowlist rejected
+    - Mandatory dual-approval lifecycle
+    """
+    # 1a. Rejection for overly broad prefix (e.g. /16)
     broad_res = await client.post(
         "/api/v1/mitigation/rtbh/preview",
         json={
@@ -336,8 +344,59 @@ async def test_rtbh_mitigation_dual_approval_and_prefix_guards(
     )
     assert broad_res.status_code == 422
 
-    # 2. Preview valid host blackhole /32
-    valid_preview = await client.post(
+    # 1b. Rejection for default route 0.0.0.0/0
+    def_res4 = await client.post(
+        "/api/v1/mitigation/rtbh/preview",
+        json={
+            "target_prefix": "0.0.0.0/0",
+            "blackhole_community": "65535:666",
+            "justification": "Testing illegal default route IPv4",
+        },
+        headers={"Authorization": f"Bearer {engineer_token}"},
+    )
+    assert def_res4.status_code == 422
+
+    # 1c. Rejection for default route ::/0
+    def_res6 = await client.post(
+        "/api/v1/mitigation/rtbh/preview",
+        json={
+            "target_prefix": "::/0",
+            "blackhole_community": "65535:666",
+            "justification": "Testing illegal default route IPv6",
+        },
+        headers={"Authorization": f"Bearer {engineer_token}"},
+    )
+    assert def_res6.status_code == 422
+
+    # 1d. Rejection for prefix outside active PrefixAllowlist
+    outside_preview = await client.post(
+        "/api/v1/mitigation/rtbh/preview",
+        json={
+            "target_prefix": "198.51.100.99/32",
+            "blackhole_community": "65535:666",
+            "justification": "Testing outside allowlist host",
+        },
+        headers={"Authorization": f"Bearer {engineer_token}"},
+    )
+    assert outside_preview.status_code == 200
+    assert outside_preview.json()["validation_status"] == "INVALID"
+    assert any("PrefixAllowlist" in msg for msg in outside_preview.json()["validation_messages"])
+
+    outside_create = await client.post(
+        "/api/v1/mitigation/rtbh/rules",
+        json={
+            "target_prefix": "198.51.100.99/32",
+            "blackhole_community": "65535:666",
+            "justification": "Testing outside allowlist creation",
+            "ttl_minutes": 60,
+        },
+        headers={"Authorization": f"Bearer {engineer_token}"},
+    )
+    assert outside_create.status_code == 400
+    assert "PrefixAllowlist" in outside_create.json()["detail"]
+
+    # 2a. Preview valid host blackhole /32 (inside allowed customer block 103.145.2.0/24)
+    valid_preview_32 = await client.post(
         "/api/v1/mitigation/rtbh/preview",
         json={
             "target_prefix": "103.145.2.55/32",
@@ -346,13 +405,45 @@ async def test_rtbh_mitigation_dual_approval_and_prefix_guards(
         },
         headers={"Authorization": f"Bearer {engineer_token}"},
     )
-    assert valid_preview.status_code == 200
-    preview_data = valid_preview.json()
-    assert preview_data["blackhole_community"] == "65535:666"
-    assert preview_data["is_host_route"] is True
-    assert preview_data["next_hop"] == "192.0.2.1"
+    assert valid_preview_32.status_code == 200
+    preview_data_32 = valid_preview_32.json()
+    assert preview_data_32["validation_status"] == "VALID"
+    assert preview_data_32["blackhole_community"] == "65535:666"
+    assert preview_data_32["is_host_route"] is True
+    assert preview_data_32["next_hop"] == "192.0.2.1"
 
-    # 3. Engineer creates RTBH rule candidate
+    # 2b. Preview valid delegated subnet /24 (matching allowed 103.145.2.0/24)
+    valid_preview_24 = await client.post(
+        "/api/v1/mitigation/rtbh/preview",
+        json={
+            "target_prefix": "103.145.2.0/24",
+            "blackhole_community": "65535:666",
+            "justification": "Targeted subnet DDoS drop for volumetric saturation",
+        },
+        headers={"Authorization": f"Bearer {engineer_token}"},
+    )
+    assert valid_preview_24.status_code == 200
+    preview_data_24 = valid_preview_24.json()
+    assert preview_data_24["validation_status"] == "VALID"
+    assert preview_data_24["prefix_length"] == 24
+    assert preview_data_24["is_host_route"] is False
+
+    # 2c. Create RTBH rule for valid /24 block
+    create_rtbh_24 = await client.post(
+        "/api/v1/mitigation/rtbh/rules",
+        json={
+            "target_prefix": "103.145.2.0/24",
+            "blackhole_community": "65535:666",
+            "justification": "Subnet-wide blackhole during catastrophic flood",
+            "ttl_minutes": 60,
+        },
+        headers={"Authorization": f"Bearer {engineer_token}"},
+    )
+    assert create_rtbh_24.status_code == 201
+    assert create_rtbh_24.json()["target_prefix"] == "103.145.2.0/24"
+    assert create_rtbh_24.json()["status"] == "DRAFT"
+
+    # 3. Engineer creates RTBH rule candidate for /32 host
     create_rtbh = await client.post(
         "/api/v1/mitigation/rtbh/rules",
         json={

@@ -19,8 +19,13 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from app.core.config import settings
 
+CH_CONTAINER = os.getenv("CH_CONTAINER", "jdp-clickhouse")
+CH_USER = os.getenv("CH_USER", settings.CLICKHOUSE_USER)
+CH_PASSWORD = os.getenv("CH_PASSWORD", settings.CLICKHOUSE_PASSWORD)
+CH_DB = os.getenv("CH_DB", settings.CLICKHOUSE_DB)
+
 def redact_log(message: str) -> str:
-    secrets = [settings.CLICKHOUSE_PASSWORD, settings.SECRET_KEY]
+    secrets = [CH_PASSWORD, settings.CLICKHOUSE_PASSWORD, settings.SECRET_KEY]
     clean = message
     for s in secrets:
         if s and len(s) > 3:
@@ -50,7 +55,7 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
         raise FileNotFoundError(f"ClickHouse backup file not found: {archive_path}")
 
     # Safety Guardrail: Prevent accidental overwrite of active production ClickHouse DB
-    if target_db == settings.CLICKHOUSE_DB and not allow_prod_overwrite:
+    if target_db in (CH_DB, settings.CLICKHOUSE_DB) and not allow_prod_overwrite:
         raise PermissionError(
             f"SAFETY VIOLATION: Cannot restore directly into active ClickHouse database '{target_db}'! "
             f"Please specify an isolated test database like 'jdp_flow_analytics_restore_test' "
@@ -88,11 +93,11 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
         print("  All internal data files passed integrity checks.")
 
         # 2. Prepare Isolated Target Database
-        print(f"Creating isolated ClickHouse target database '{target_db}'...")
+        print(f"Creating isolated ClickHouse target database '{target_db}' on container '{CH_CONTAINER}'...")
         drop_cmd = f"DROP DATABASE IF EXISTS {target_db}; CREATE DATABASE {target_db};"
         subprocess.run([
-            "docker", "exec", "-i", "jdp-clickhouse",
-            "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
+            "docker", "exec", "-i", CH_CONTAINER,
+            "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
             "--query", drop_cmd
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
@@ -105,8 +110,8 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
             ddl = f.read().strip()
             ddl = ddl.replace(f"CREATE TABLE {source_db}.", f"CREATE TABLE IF NOT EXISTS {target_db}.")
             res = subprocess.run([
-                "docker", "exec", "-i", "jdp-clickhouse",
-                "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
+                "docker", "exec", "-i", CH_CONTAINER,
+                "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
                 "--database", target_db,
                 "--multiquery"
             ], input=ddl, text=True, capture_output=True)
@@ -118,8 +123,8 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
             ddl = f.read().strip()
             ddl = ddl.replace(f"CREATE TABLE {source_db}.", f"CREATE TABLE IF NOT EXISTS {target_db}.")
             res = subprocess.run([
-                "docker", "exec", "-i", "jdp-clickhouse",
-                "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
+                "docker", "exec", "-i", CH_CONTAINER,
+                "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
                 "--database", target_db,
                 "--multiquery"
             ], input=ddl, text=True, capture_output=True)
@@ -131,8 +136,8 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
             data_file = os.path.join(temp_dir, f"{tbl}.tsv.gz")
             print(f"Streaming data into {target_db}.{tbl}...")
             insert_cmd = [
-                "docker", "exec", "-i", "jdp-clickhouse",
-                "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
+                "docker", "exec", "-i", CH_CONTAINER,
+                "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
                 "--database", target_db,
                 "--query", f"INSERT INTO {tbl} FORMAT TabSeparatedWithNamesAndTypes"
             ]
@@ -148,8 +153,8 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
         # 5. Verify Restored Counts & Aggregations
         print("Verifying restored ClickHouse row counts and aggregation consistency...")
         check_cmd = [
-            "docker", "exec", "-i", "jdp-clickhouse",
-            "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
+            "docker", "exec", "-i", CH_CONTAINER,
+            "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
             "--database", target_db,
             "--query", "SELECT 'flow_records', count() FROM flow_records UNION ALL SELECT 'flow_hourly_agg', count() FROM flow_hourly_agg"
         ]
@@ -168,8 +173,8 @@ def restore_clickhouse(archive_path: str, target_db: str = "jdp_flow_analytics_r
 
         # Check aggregate query
         agg_test_cmd = [
-            "docker", "exec", "-i", "jdp-clickhouse",
-            "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
+            "docker", "exec", "-i", CH_CONTAINER,
+            "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
             "--database", target_db,
             "--query", "SELECT count(), sum(packets), sum(bytes) FROM flow_records"
         ]

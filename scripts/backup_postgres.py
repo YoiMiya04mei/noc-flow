@@ -15,9 +15,14 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from app.core.config import settings
 
+PG_CONTAINER = os.getenv("PG_CONTAINER", "jdp-postgres")
+PG_USER = os.getenv("PG_USER", settings.POSTGRES_USER)
+PG_DB = os.getenv("PG_DB", settings.POSTGRES_DB)
+PG_PASSWORD = os.getenv("PG_PASSWORD", settings.POSTGRES_PASSWORD)
+
 def redact_log(message: str) -> str:
     """Ensure sensitive credentials never appear in console logs."""
-    secrets = [settings.POSTGRES_PASSWORD, settings.SECRET_KEY]
+    secrets = [PG_PASSWORD, settings.POSTGRES_PASSWORD, settings.SECRET_KEY]
     clean = message
     for s in secrets:
         if s and len(s) > 3:
@@ -35,8 +40,8 @@ def get_table_counts():
     ]
     query = " UNION ALL ".join([f"SELECT '{t}', count(*) FROM {t}" for t in tables]) + ";"
     cmd = [
-        "docker", "exec", "-i", "jdp-postgres",
-        "psql", "-U", settings.POSTGRES_USER, "-d", settings.POSTGRES_DB,
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", PG_DB,
         "-t", "-A", "-F", ",", "-c", query
     ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
@@ -55,15 +60,15 @@ def backup_postgres(output_dir: str = "backups/postgres"):
     manifest_path = os.path.join(output_dir, f"jdp_postgres_{timestamp}.manifest.json")
     sha_path = os.path.join(output_dir, f"{backup_filename}.sha256")
 
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Starting PostgreSQL backup for DB '{settings.POSTGRES_DB}'...")
-    print(f"Collecting pre-backup table metrics from jdp-postgres...")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Starting PostgreSQL backup for DB '{PG_DB}' on container '{PG_CONTAINER}'...")
+    print(f"Collecting pre-backup table metrics from {PG_CONTAINER}...")
     table_counts = get_table_counts()
     print(f"Recorded pre-backup metrics: {len(table_counts)} tables cataloged.")
 
     # Execute pg_dump from container and stream through gzip
     dump_cmd = [
-        "docker", "exec", "-i", "jdp-postgres",
-        "pg_dump", "-U", settings.POSTGRES_USER, "-d", settings.POSTGRES_DB,
+        "docker", "exec", "-i", PG_CONTAINER,
+        "pg_dump", "-U", PG_USER, "-d", PG_DB,
         "--clean", "--if-exists", "--no-owner", "--no-privileges"
     ]
 
@@ -94,7 +99,7 @@ def backup_postgres(output_dir: str = "backups/postgres"):
 
     # Write Manifest
     manifest = {
-        "database": settings.POSTGRES_DB,
+        "database": PG_DB,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "backup_file": backup_filename,
         "uncompressed_bytes": total_bytes,

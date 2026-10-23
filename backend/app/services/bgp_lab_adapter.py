@@ -122,7 +122,8 @@ class BGPLabAdapter:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            cmd_timeout = getattr(settings, "BGP_LAB_COMMAND_TIMEOUT_SECONDS", 15.0)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=cmd_timeout)
 
             if proc.returncode != 0:
                 err_msg = stderr.decode().strip()

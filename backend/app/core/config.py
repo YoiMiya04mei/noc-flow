@@ -83,7 +83,8 @@ class Settings(BaseSettings):
         "10.99.0.10",
         "10.99.0.20",
     ]
-    BGP_LAB_CONVERGENCE_TIMEOUT_SECONDS: int = 10
+    BGP_LAB_CONVERGENCE_TIMEOUT_SECONDS: int = 25
+    BGP_LAB_COMMAND_TIMEOUT_SECONDS: int = 15
 
     # SNMP Polling Configuration
     SNMP_POLLING_ENABLED: bool = True

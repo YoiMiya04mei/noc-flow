@@ -16,8 +16,13 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from app.core.config import settings
 
+CH_CONTAINER = os.getenv("CH_CONTAINER", "jdp-clickhouse")
+CH_USER = os.getenv("CH_USER", settings.CLICKHOUSE_USER)
+CH_PASSWORD = os.getenv("CH_PASSWORD", settings.CLICKHOUSE_PASSWORD)
+CH_DB = os.getenv("CH_DB", settings.CLICKHOUSE_DB)
+
 def redact_log(message: str) -> str:
-    secrets = [settings.CLICKHOUSE_PASSWORD, settings.SECRET_KEY]
+    secrets = [CH_PASSWORD, settings.CLICKHOUSE_PASSWORD, settings.SECRET_KEY]
     clean = message
     for s in secrets:
         if s and len(s) > 3:
@@ -26,9 +31,9 @@ def redact_log(message: str) -> str:
 
 def get_clickhouse_counts():
     cmd = [
-        "docker", "exec", "-i", "jdp-clickhouse",
-        "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
-        "--database", settings.CLICKHOUSE_DB,
+        "docker", "exec", "-i", CH_CONTAINER,
+        "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
+        "--database", CH_DB,
         "--query", "SELECT 'flow_records', count() FROM flow_records UNION ALL SELECT 'flow_hourly_agg', count() FROM flow_hourly_agg"
     ]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
@@ -45,7 +50,7 @@ def backup_clickhouse(output_dir: str = "backups/clickhouse"):
     work_dir = os.path.join(output_dir, f"work_{timestamp}")
     os.makedirs(work_dir, exist_ok=True)
 
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Starting ClickHouse backup for DB '{settings.CLICKHOUSE_DB}'...")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Starting ClickHouse backup for DB '{CH_DB}' on container '{CH_CONTAINER}'...")
     table_counts = get_clickhouse_counts()
     print(f"Recorded pre-backup metrics: flow_records={table_counts.get('flow_records', 0)}, flow_hourly_agg={table_counts.get('flow_hourly_agg', 0)}")
 
@@ -54,9 +59,9 @@ def backup_clickhouse(output_dir: str = "backups/clickhouse"):
     ddls = {}
     for tbl in tables:
         cmd = [
-            "docker", "exec", "-i", "jdp-clickhouse",
-            "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
-            "--database", settings.CLICKHOUSE_DB,
+            "docker", "exec", "-i", CH_CONTAINER,
+            "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
+            "--database", CH_DB,
             "--query", f"SHOW CREATE TABLE {tbl} FORMAT RawBLOB;"
         ]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
@@ -69,9 +74,9 @@ def backup_clickhouse(output_dir: str = "backups/clickhouse"):
     for tbl in ["flow_records", "flow_hourly_agg"]:
         data_file = os.path.join(work_dir, f"{tbl}.tsv.gz")
         dump_cmd = [
-            "docker", "exec", "-i", "jdp-clickhouse",
-            "clickhouse-client", "--password", settings.CLICKHOUSE_PASSWORD,
-            "--database", settings.CLICKHOUSE_DB,
+            "docker", "exec", "-i", CH_CONTAINER,
+            "clickhouse-client", "--user", CH_USER, "--password", CH_PASSWORD,
+            "--database", CH_DB,
             "--query", f"SELECT * FROM {tbl} FORMAT TabSeparatedWithNamesAndTypes"
         ]
         hasher = hashlib.sha256()
@@ -98,7 +103,7 @@ def backup_clickhouse(output_dir: str = "backups/clickhouse"):
 
     # 3. Compile Manifest
     manifest = {
-        "database": settings.CLICKHOUSE_DB,
+        "database": CH_DB,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "tables": tables,
         "row_counts": table_counts,

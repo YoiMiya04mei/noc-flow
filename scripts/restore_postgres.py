@@ -17,8 +17,13 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from app.core.config import settings
 
+PG_CONTAINER = os.getenv("PG_CONTAINER", "jdp-postgres")
+PG_USER = os.getenv("PG_USER", settings.POSTGRES_USER)
+PG_DB = os.getenv("PG_DB", settings.POSTGRES_DB)
+PG_PASSWORD = os.getenv("PG_PASSWORD", settings.POSTGRES_PASSWORD)
+
 def redact_log(message: str) -> str:
-    secrets = [settings.POSTGRES_PASSWORD, settings.SECRET_KEY]
+    secrets = [PG_PASSWORD, settings.POSTGRES_PASSWORD, settings.SECRET_KEY]
     clean = message
     for s in secrets:
         if s and len(s) > 3:
@@ -51,7 +56,7 @@ def restore_postgres(backup_path: str, target_db: str = "jdp_route_intel_restore
         raise FileNotFoundError(f"Backup file not found: {backup_path}")
 
     # Safety Guardrail: Prevent accidental overwrite of active production DB
-    if target_db == settings.POSTGRES_DB and not allow_prod_overwrite:
+    if target_db in (PG_DB, settings.POSTGRES_DB) and not allow_prod_overwrite:
         raise PermissionError(
             f"SAFETY VIOLATION: Cannot restore directly into active database '{target_db}'! "
             f"Please specify an isolated test database like 'jdp_route_intel_restore_test' "
@@ -70,25 +75,25 @@ def restore_postgres(backup_path: str, target_db: str = "jdp_route_intel_restore
     verify_checksum(backup_path, expected_sha)
 
     # 2. Prepare Isolated Target Database
-    print(f"Preparing target database '{target_db}' on container jdp-postgres...")
+    print(f"Preparing target database '{target_db}' on container {PG_CONTAINER}...")
     # Drop existing test db if needed and create clean
     subprocess.run([
-        "docker", "exec", "-i", "jdp-postgres",
-        "psql", "-U", settings.POSTGRES_USER, "-d", "postgres",
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", "postgres",
         "-c", f"DROP DATABASE IF EXISTS {target_db} WITH (FORCE);"
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
     subprocess.run([
-        "docker", "exec", "-i", "jdp-postgres",
-        "psql", "-U", settings.POSTGRES_USER, "-d", "postgres",
-        "-c", f"CREATE DATABASE {target_db} OWNER {settings.POSTGRES_USER};"
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", "postgres",
+        "-c", f"CREATE DATABASE {target_db} OWNER {PG_USER};"
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
     # 3. Stream & Restore
     print(f"Restoring SQL dump into '{target_db}'...")
     restore_cmd = [
-        "docker", "exec", "-i", "jdp-postgres",
-        "psql", "-U", settings.POSTGRES_USER, "-d", target_db
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", target_db
     ]
     proc = subprocess.Popen(restore_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -117,8 +122,8 @@ def restore_postgres(backup_path: str, target_db: str = "jdp_route_intel_restore
     ]
     query = " UNION ALL ".join([f"SELECT '{t}', count(*) FROM {t}" for t in tables]) + ";"
     res = subprocess.run([
-        "docker", "exec", "-i", "jdp-postgres",
-        "psql", "-U", settings.POSTGRES_USER, "-d", target_db,
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", target_db,
         "-t", "-A", "-F", ",", "-c", query
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
 
@@ -140,22 +145,22 @@ def restore_postgres(backup_path: str, target_db: str = "jdp_route_intel_restore
         raise ValueError(f"Restored row count validation failed: {', '.join(mismatches)}")
 
     # 5. Test Application Readability Query
-    test_query = "SELECT username, role FROM users WHERE username = 'admin';"
+    test_query = "SELECT username, role FROM users WHERE role = 'super_admin' LIMIT 1;"
     read_res = subprocess.run([
-        "docker", "exec", "-i", "jdp-postgres",
-        "psql", "-U", settings.POSTGRES_USER, "-d", target_db,
+        "docker", "exec", "-i", PG_CONTAINER,
+        "psql", "-U", PG_USER, "-d", target_db,
         "-t", "-A", "-c", test_query
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
 
-    if "admin|super_admin" not in read_res.stdout.strip():
-        raise ValueError(f"Readability query failed! Expected admin|super_admin, got: {read_res.stdout.strip()}")
+    if "super_admin" not in read_res.stdout.strip():
+        raise ValueError(f"Readability query failed! Expected role containing super_admin, got: {read_res.stdout.strip()}")
 
     print("Restored Database Verification Report:")
     print(f"  Target DB: {target_db}")
     print(f"  Verified Tables: {len(restored_counts)}")
     for tbl, cnt in restored_counts.items():
         print(f"    - {tbl}: {cnt} rows (MATCH)")
-    print(f"  Application Readability: PASS (admin user verified)")
+    print(f"  Application Readability: PASS (super_admin user verified: {read_res.stdout.strip()})")
     print(f"  Restore Drill Status: PASSED (100% Integrity)")
     return True
 

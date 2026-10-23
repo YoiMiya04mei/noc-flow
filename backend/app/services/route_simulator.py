@@ -104,20 +104,24 @@ class RouteSimulatorService:
         jit_delta = round(cand_jit - current_jit, 2)
 
         # 5. Traffic volume and link capacity estimation
-        estimated_shift_mbps = 45.0  # Default reasonable estimate
-        if clickhouse_service.is_connected():
+        estimated_shift_mbps = 45.0  # Baseline capacity estimate
+        if clickhouse_service.is_connected() and len(policy_errors) == 0:
             try:
                 ch_query = f"""
                 SELECT sum(bytes) * 8 / (300 * 1000000) as mbps
                 FROM flow_records
-                WHERE dst_prefix = '{prefix}' AND timestamp >= now() - INTERVAL 5 MINUTE
+                WHERE isIPAddressInRange(dst_ip, '{prefix}') AND timestamp >= now() - INTERVAL 5 MINUTE
                 """
                 res = clickhouse_service.query(ch_query)
                 if res and res[0][0] is not None and res[0][0] > 0:
                     estimated_shift_mbps = round(float(res[0][0]), 2)
+                else:
+                    limitations.append(f"No recent live flow traffic observed for {prefix} in ClickHouse; utilizing baseline estimate.")
             except Exception as e:
                 logger.warning(f"ClickHouse flow query error in simulator: {e}")
                 limitations.append("Flow volume query fallback to baseline estimate.")
+        elif not clickhouse_service.is_connected():
+            limitations.append("Flow analytics database disconnected; utilizing baseline estimate.")
 
         post_util = 58.4  # Projected post-shift candidate interface utilization %
 

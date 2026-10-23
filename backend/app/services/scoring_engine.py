@@ -291,7 +291,14 @@ class RouteScoringEngine:
         """
         score_delta = score_candidate - score_current
         min_improvement = getattr(policy, "min_improvement_score", 10.0)
+        if min_improvement is None:
+            min_improvement = 10.0
         hysteresis_pct = getattr(policy, "hysteresis_threshold_pct", 15.0)
+        if hysteresis_pct is None:
+            hysteresis_pct = 15.0
+        hold_down = getattr(policy, "hold_down_minutes", 15)
+        if hold_down is None:
+            hold_down = 15
 
         # 1. Minimum improvement score check
         if score_delta < min_improvement:
@@ -318,10 +325,10 @@ class RouteScoringEngine:
                 last_rec_utc = last_recommendation_time
 
             elapsed_minutes = (now - last_rec_utc).total_seconds() / 60.0
-            if elapsed_minutes < policy.hold_down_minutes:
+            if elapsed_minutes < hold_down:
                 return False, (
                     f"Hold-down cooldown active. Last recommendation generated {elapsed_minutes:.1f}m ago "
-                    f"(cooldown window is {policy.hold_down_minutes}m)."
+                    f"(cooldown window is {hold_down}m)."
                 )
 
         return True, None

@@ -16,6 +16,7 @@ import struct
 import time
 import sys
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Set, Tuple
 from sqlalchemy import select, update
@@ -185,14 +186,12 @@ async def execute_icmp_probe(
         stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec * packet_count + 3.0)
         output = stdout_bytes.decode("utf-8", errors="replace")
 
-        # Parse RTT values from ping output
+        # Parse RTT values from ping output (Windows "time=14ms" / "time<1ms", Linux "time=14.2 ms", ID "waktu=14ms")
         for line in output.splitlines():
-            line_lower = line.lower()
-            if "time=" in line_lower or "waktu=" in line_lower:
+            match = re.search(r"(?:time|waktu)[=<]\s*(\d+(?:\.\d+)?)", line.lower())
+            if match:
                 try:
-                    # Windows: "time=14ms" or "time<1ms"; Linux: "time=14.2 ms"
-                    part = line_lower.split("time")[1].split()[0].replace("=", "").replace("<", "").replace("ms", "")
-                    val = float(part)
+                    val = float(match.group(1))
                     samples.append(val)
                 except Exception:
                     pass

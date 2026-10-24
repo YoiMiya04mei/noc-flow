@@ -282,6 +282,35 @@ async def get_device(
     return device
 
 
+@router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_device(
+    device_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.NETWORK_ENGINEER, UserRole.SUPER_ADMIN)),
+):
+    stmt = select(Device).where(Device.id == device_id)
+    device = (await db.execute(stmt)).scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    hostname = device.hostname
+    mgmt_ip = device.mgmt_ip
+    await db.delete(device)
+    await db.commit()
+
+    await record_audit_event(
+        db=db,
+        user=current_user,
+        action="DELETE_DEVICE",
+        resource_type="device",
+        resource_id=str(device_id),
+        details=f"Deleted device {hostname} ({mgmt_ip})",
+        request=request,
+    )
+    return None
+
+
 class DeviceProfileAssign(BaseModel):
     snmp_profile_id: Optional[int] = None
 

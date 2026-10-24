@@ -97,6 +97,17 @@ export default function DevicesPage() {
     priv_pass: "",
     community: "",
   });
+  // Device Registration Modal
+  const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [submittingDevice, setSubmittingDevice] = useState(false);
+  const [newDevice, setNewDevice] = useState({
+    hostname: "",
+    mgmt_ip: "",
+    vendor: "Huawei",
+    model: "NetEngine 40E",
+    snmp_profile_id: "" as string | number,
+    status: "online",
+  });
 
   const loadData = async () => {
     try {
@@ -219,6 +230,51 @@ export default function DevicesPage() {
     }
   };
 
+  const handleCreateDevice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmittingDevice(true);
+      await api.createDevice({
+        hostname: newDevice.hostname.trim(),
+        mgmt_ip: newDevice.mgmt_ip.trim(),
+        vendor: newDevice.vendor,
+        model: newDevice.model.trim() || undefined,
+        snmp_profile_id: newDevice.snmp_profile_id ? Number(newDevice.snmp_profile_id) : undefined,
+        status: newDevice.status,
+      });
+      setShowDeviceModal(false);
+      setNewDevice({
+        hostname: "",
+        mgmt_ip: "",
+        vendor: "Huawei",
+        model: "NetEngine 40E",
+        snmp_profile_id: "",
+        status: "online",
+      });
+      const refreshed = await api.getDevices();
+      setDevices(refreshed);
+      if (refreshed.length > 0) {
+        setSelectedDevice(refreshed[refreshed.length - 1]);
+      }
+    } catch (err: any) {
+      alert(`Failed to create device: ${err.message}`);
+    } finally {
+      setSubmittingDevice(false);
+    }
+  };
+
+  const handleDeleteDevice = async (devId: number, hostname: string) => {
+    if (!confirm(`Are you sure you want to delete device ${hostname}?`)) return;
+    try {
+      await api.deleteDevice(devId);
+      const refreshed = await api.getDevices();
+      setDevices(refreshed);
+      setSelectedDevice(refreshed.length > 0 ? refreshed[0] : null);
+    } catch (err: any) {
+      alert(`Failed to delete device: ${err.message}`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
@@ -237,6 +293,13 @@ export default function DevicesPage() {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setShowDeviceModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-mono transition-colors shadow-sm font-semibold"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Device</span>
+          </button>
+          <button
             onClick={() => setShowProfileModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1F2937] hover:bg-[#374151] border border-gray-700 rounded-lg text-xs font-mono text-gray-200 transition-colors"
           >
@@ -246,7 +309,7 @@ export default function DevicesPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-mono transition-colors shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1F2937] hover:bg-[#374151] border border-gray-700 disabled:opacity-50 text-gray-200 rounded-lg text-xs font-mono transition-colors shadow-sm"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             <span>Refresh</span>
@@ -452,6 +515,14 @@ export default function DevicesPage() {
                   {selectedDevice.last_poll_duration_ms ? `${selectedDevice.last_poll_duration_ms.toFixed(1)}ms` : "N/A"}
                 </span>
               </span>
+              <button
+                onClick={() => handleDeleteDevice(selectedDevice.id, selectedDevice.hostname)}
+                className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded text-[10px] font-mono transition-colors"
+                title="Delete device"
+              >
+                <X className="w-3 h-3" />
+                <span>Delete</span>
+              </button>
             </div>
           </div>
 
@@ -829,6 +900,128 @@ export default function DevicesPage() {
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-mono font-semibold"
                 >
                   Save Profile
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Register New Device Modal */}
+      {showDeviceModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#111827] border border-gray-800 rounded-xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowDeviceModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-4">
+              <Server className="w-5 h-5 text-blue-400" />
+              <h3 className="text-base font-bold text-white font-mono">Register New Network Device</h3>
+            </div>
+            <p className="text-xs text-gray-400 font-mono mb-4">
+              Tambahkan router / switch (misal Huawei NE40E/CloudEngine) ke sistem inventory dan kaitkan SNMP profile untuk polling otomatis.
+            </p>
+
+            <form onSubmit={handleCreateDevice} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                <div>
+                  <label className="text-gray-400 block mb-1">Hostname *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. HWI-NE40E-CORE01"
+                    value={newDevice.hostname}
+                    onChange={(e) => setNewDevice({ ...newDevice, hostname: e.target.value })}
+                    className="w-full bg-[#0D1322] border border-gray-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-400 block mb-1">Management IP *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 10.10.10.1"
+                    value={newDevice.mgmt_ip}
+                    onChange={(e) => setNewDevice({ ...newDevice, mgmt_ip: e.target.value })}
+                    className="w-full bg-[#0D1322] border border-gray-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                <div>
+                  <label className="text-gray-400 block mb-1">Vendor *</label>
+                  <select
+                    value={newDevice.vendor}
+                    onChange={(e) => setNewDevice({ ...newDevice, vendor: e.target.value })}
+                    className="w-full bg-[#0D1322] border border-gray-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="Huawei">Huawei</option>
+                    <option value="Cisco">Cisco</option>
+                    <option value="Juniper">Juniper</option>
+                    <option value="MikroTik">MikroTik</option>
+                    <option value="Generic">Generic / Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-gray-400 block mb-1">Model / Hardware</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. NetEngine 40E"
+                    value={newDevice.model}
+                    onChange={(e) => setNewDevice({ ...newDevice, model: e.target.value })}
+                    className="w-full bg-[#0D1322] border border-gray-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                <div>
+                  <label className="text-gray-400 block mb-1">SNMP Profile</label>
+                  <select
+                    value={newDevice.snmp_profile_id}
+                    onChange={(e) => setNewDevice({ ...newDevice, snmp_profile_id: e.target.value })}
+                    className="w-full bg-[#0D1322] border border-gray-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">-- No SNMP Profile --</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.version.toUpperCase()} {p.security_name || p.version})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-gray-400 block mb-1">Operational Status</label>
+                  <select
+                    value={newDevice.status}
+                    onChange={(e) => setNewDevice({ ...newDevice, status: e.target.value })}
+                    className="w-full bg-[#0D1322] border border-gray-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="online">Online / Active</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="offline">Offline</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeviceModal(false)}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs font-mono"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingDevice}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded text-xs font-mono font-semibold"
+                >
+                  {submittingDevice ? "Registering..." : "Register Device"}
                 </button>
               </div>
             </form>

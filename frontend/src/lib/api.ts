@@ -19,6 +19,13 @@ export function getAuthToken(): string | null {
   return null;
 }
 
+export function clearAuthToken() {
+  authToken = null;
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("jdp_token");
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {

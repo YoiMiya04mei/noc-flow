@@ -1,6 +1,13 @@
 // API Client for JDP Route Intelligence Platform
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function getApiBase(): string {
+  if (typeof window !== "undefined") {
+    // In client browser: ALWAYS use relative path so requests go through Nginx to current origin (https://nocflow.jembatandata.com/api/v1/...)
+    return "";
+  }
+  // In server-side SSR: route to backend container
+  return process.env.NEXT_PUBLIC_API_URL || "http://backend:8000";
+}
 
 let authToken: string | null = null;
 
@@ -37,7 +44,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const base = getApiBase();
+  const res = await fetch(`${base}${endpoint}`, {
     ...options,
     headers,
   });

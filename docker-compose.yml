@@ -59,7 +59,7 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_dev_pass}
       SECRET_KEY: ${SECRET_KEY:-default-insecure-dev-secret-key-change-in-prod-32c}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,7 +110,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://backend:8000
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3001}:3000"
     depends_on:
       backend:
         condition: service_healthy
